@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#E64B3C">
+  <title>PMPL HRMS</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/pmpl_logo.jpg">
+  <link rel="apple-touch-icon" href="assets/pmpl_logo.jpg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ TOP BAR ══════════════════════════════════════════════ -->
+  <div id="top-bar" class="hidden">
+    <img src="assets/pmpl_logo.jpg" alt="PMPL" class="top-logo">
+    <span class="top-title">PMPL HRMS</span>
+    <span class="top-user" id="user-name-display"></span>
+    <button class="top-logout" onclick="doLogout()">Sign Out</button>
+  </div>
+
+  <!-- ═══ LOGIN SCREEN ════════════════════════════════════════= -->
+  <div id="screen-login">
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo"><img src="assets/pmpl_logo.jpg" alt="PMPL Logo"></div>
+        <div class="login-title">PMPL HRMS</div>
+        <div class="login-sub">Employee Management & Payroll</div>
+        <div class="form-group">
+          <label>Email Address</label>
+          <input id="login-email" type="email" class="form-control" placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input id="login-pass" type="password" class="form-control" placeholder="••••••••"
+            onkeydown="if(event.key==='Enter') doLogin()">
+        </div>
+        <button id="login-btn" class="btn btn-primary btn-full" onclick="doLogin()">Sign In</button>
+        <div class="text-center mt-2" style="font-size:11px;color:var(--muted);">
+          Polyfill Microns Pvt. Ltd. — Internal System
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ EMPLOYEE: ATTENDANCE DASHBOARD ══════════════════════= -->
+  <div id="screen-attendance" class="screen hidden">
+    <div class="card att-hero">
+      <div id="att-emp-name" style="font-size:17px;font-weight:700;"></div>
+      <div style="font-size:12px;color:var(--muted);">
+        <span id="att-month"></span> &nbsp;|&nbsp; <span id="att-today"></span>
+      </div>
+      <div class="att-status-big">📋</div>
+      <div class="att-status-text" id="att-today-status">—</div>
+      <button id="att-mark-btn" class="btn btn-primary btn-full" onclick="markPresent()">Mark Present Today</button>
+    </div>
+
+    <div id="att-advance-balance" class="card hidden" style="background:#FEF9E7;color:#9A7D0A;font-weight:600;"></div>
+
+    <div class="summary-grid">
+      <div class="summary-card"><div class="s-val" id="att-summary-present">—</div><div class="s-lbl">Present</div></div>
+      <div class="summary-card"><div class="s-val" id="att-summary-leave">—</div><div class="s-lbl">Paid Leave</div></div>
+      <div class="summary-card"><div class="s-val" id="att-summary-weekly">—</div><div class="s-lbl">Weekly Offs</div></div>
+      <div class="summary-card"><div class="s-val" id="att-summary-holidays">—</div><div class="s-lbl">Holidays</div></div>
+      <div class="summary-card"><div class="s-val" id="att-summary-paid">—</div><div class="s-lbl">Paid Days</div></div>
+    </div>
+
+    <!-- Apply Leave -->
+    <div class="card">
+      <div class="card-title">Apply Leave</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>From Date</label>
+          <input id="leave-from" type="date" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>To Date</label>
+          <input id="leave-to" type="date" class="form-control">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Reason (optional)</label>
+        <input id="leave-reason" type="text" class="form-control" placeholder="Reason…">
+      </div>
+      <button class="btn btn-outline" onclick="applyLeave()">Submit Leave Request</button>
+    </div>
+
+    <!-- Quick expense shortcut -->
+    <div class="card">
+      <div class="card-title">Quick Expense</div>
+      <button class="btn btn-outline btn-full" onclick="showScreen('my-expenses')">➕ Raise Company Expense</button>
+    </div>
+
+    <!-- Notifications -->
+    <div class="card">
+      <div class="card-title">Notifications</div>
+      <div id="att-notifications"></div>
+    </div>
+
+    <!-- Recent Attendance -->
+    <div class="card">
+      <div class="card-title">Recent Attendance</div>
+      <div id="att-recent"></div>
+    </div>
+  </div>
+
+  <!-- ═══ EMPLOYEE: LEAVE HISTORY ══════════════════════════════ -->
+  <div id="screen-leave-history" class="screen hidden">
+    <div class="page-header">
+      <div class="page-title">Leave History</div>
+    </div>
+    <div id="leave-history-list"></div>
+  </div>
+
+  <!-- ═══ EMPLOYEE: MY EXPENSES ════════════════════════════════ -->
+  <div id="screen-my-expenses" class="screen hidden">
+    <div class="page-header">
+      <div class="page-title">Company Expenses</div>
+    </div>
+    <div class="card">
+      <div class="card-title">New Expense</div>
+      <form id="exp-form" onsubmit="return false">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date *</label>
+            <input id="exp-date" type="date" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Category *</label>
+            <select id="exp-category" class="form-control">
+              <option value="Travel">Travel</option>
+              <option value="Food">Food</option>
+              <option value="Local Conveyance">Local Conveyance</option>
+              <option value="Parts/Components">Parts/Components</option>
+              <option value="Accommodation">Accommodation</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Amount (₹) *</label>
+            <input id="exp-amount" type="number" class="form-control" min="0" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label>Bill Number</label>
+            <input id="exp-bill" type="text" class="form-control" placeholder="Bill/Receipt No.">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Client (if applicable)</label>
+          <select id="exp-client" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="exp-desc" class="form-control" rows="2" placeholder="Details…"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="submitExpense()">Submit Expense</button>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-title">My Expense History</div>
+      <div id="my-exp-list"></div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: DASHBOARD ══════════════════════════════════════ -->
+  <div id="screen-admin-dashboard" class="screen hidden">
+    <div class="page-header">
+      <div class="page-title">Admin Dashboard</div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card"><div class="s-val" id="dash-active-emp">—</div><div class="s-lbl">Active Employees</div></div>
+      <div class="summary-card"><div class="s-val" id="dash-present-today">—</div><div class="s-lbl">Present Today</div></div>
+      <div class="summary-card"><div class="s-val" id="dash-leave-today">—</div><div class="s-lbl">On Leave</div></div>
+      <div class="summary-card"><div class="s-val" id="dash-pending">—</div><div class="s-lbl">Pending Approvals</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Pending Leave Requests</div>
+      <div id="dash-leave-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Pending Expense Claims</div>
+      <div id="dash-expense-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Payroll Snapshot — <span id="dash-payroll-month"></span></div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val" id="dash-payroll-processed">—</div><div class="stat-lbl">Processed</div></div>
+        <div class="stat-card"><div class="stat-val" id="dash-net-payable">—</div><div class="stat-lbl">Net Payable</div></div>
+      </div>
+      <div class="mt-2">Outstanding Company Advances: <strong id="dash-outstanding-advance">—</strong></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Quick Actions</div>
+      <div class="btn-row">
+        <button class="btn btn-outline" onclick="showScreen('admin-payroll')">💰 Run Payroll</button>
+        <button class="btn btn-outline" onclick="showScreen('admin-advance-ledger')">💵 Give Advance</button>
+        <button class="btn btn-outline" onclick="showScreen('admin-employees')">👥 Employees</button>
+        <button class="btn btn-outline" onclick="showScreen('admin-salary-slips')">📄 Salary Slips</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: EMPLOYEES ══════════════════════════════════════ -->
+  <div id="screen-admin-employees" class="screen hidden">
+    <div class="page-header">
+      <div class="page-title">Employee Management</div>
+      <button class="btn btn-primary btn-sm" onclick="showAddEmployee()">+ Add Employee</button>
+    </div>
+    <div id="emp-list"></div>
+
+    <!-- Add/Edit Employee Modal -->
+    <div id="emp-modal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <button class="modal-close" onclick="closeEmpModal()">×</button>
+        <div class="modal-title" id="emp-modal-title">Add Employee</div>
+        <input type="hidden" id="emp-form-id">
+        <div class="form-row">
+          <div class="form-group"><label>First Name *</label><input id="emp-first-name" type="text" class="form-control"></div>
+          <div class="form-group"><label>Last Name *</label><input id="emp-last-name" type="text" class="form-control"></div>
+        </div>
+        <div class="form-group"><label>Username *</label><input id="emp-username" type="text" class="form-control"></div>
+        <div class="form-group"><label>Email *</label><input id="emp-email" type="email" class="form-control"></div>
+        <div class="form-group"><label>Designation</label><input id="emp-designation" type="text" class="form-control"></div>
+        <div class="form-group"><label>PAN</label><input id="emp-pan" type="text" class="form-control" maxlength="10"></div>
+        <div id="emp-modal-pw-section" class="form-group">
+          <label>Password (min 6 chars)</label>
+          <input id="emp-password" type="password" class="form-control">
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+          <input id="emp-is-admin" type="checkbox">
+          <label for="emp-is-admin" style="margin:0;">Admin User</label>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="saveEmployee()">Save Employee</button>
+      </div>
+    </div>
+
+    <!-- Salary Structure Modal -->
+    <div id="sal-modal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <button class="modal-close" onclick="closeSalModal()">×</button>
+        <div class="modal-title" id="sal-modal-title">Salary Structure</div>
+        <input type="hidden" id="sal-form-empid">
+        <div class="card-title">Revision History</div>
+        <div id="sal-history" style="margin-bottom:16px;"></div>
+        <hr class="divider">
+        <div class="card-title">Add / Update Salary (Effective From)</div>
+        <div class="form-group">
+          <label>Effective Date</label>
+          <input id="sal-effective" type="date" class="form-control">
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Basic (₹)</label><input id="sal-basic" type="number" class="form-control" min="0"></div>
+          <div class="form-group"><label>HRA (₹)</label><input id="sal-hra" type="number" class="form-control" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Special Allowance (₹)</label><input id="sal-special" type="number" class="form-control" min="0"></div>
+          <div class="form-group"><label>Transport Allowance (₹)</label><input id="sal-transport" type="number" class="form-control" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Medical Allowance (₹)</label><input id="sal-medical" type="number" class="form-control" min="0"></div>
+          <div class="form-group"><label>Conveyance / Other (₹)</label><input id="sal-conv" type="number" class="form-control" min="0"></div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="saveSalaryStructure()">Save Salary Structure</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: ATTENDANCE REPORTS ════════════════════════════ -->
+  <div id="screen-admin-attendance" class="screen hidden">
+    <div class="page-header"><div class="page-title">Attendance Reports</div></div>
+    <div class="card">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Month</label>
+          <input id="att-report-month" type="month" class="form-control" onchange="loadAttReport()">
+        </div>
+        <div class="form-group">
+          <label>Employee</label>
+          <select id="att-report-emp" class="form-control" onchange="loadAttReport()">
+            <option value="">All Employees</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="att-report-output"></div>
+  </div>
+
+  <!-- ═══ ADMIN: LEAVE APPROVAL ════════════════════════════════ -->
+  <div id="screen-admin-leave-approval" class="screen hidden">
+    <div class="page-header"><div class="page-title">Leave Approvals</div></div>
+    <div class="card">
+      <div class="form-group">
+        <label>Filter by Status</label>
+        <select id="leave-filter" class="form-control" onchange="filterLeaves()">
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+    </div>
+    <div id="leave-approval-list"></div>
+  </div>
+
+  <!-- ═══ ADMIN: EXPENSE APPROVAL ══════════════════════════════ -->
+  <div id="screen-admin-expense-approval" class="screen hidden">
+    <div class="page-header"><div class="page-title">Expense Approvals</div></div>
+    <div class="card">
+      <div class="form-group">
+        <label>Filter by Status</label>
+        <select id="exp-approval-filter" class="form-control" onchange="filterExpenses()">
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+    </div>
+    <div id="expense-approval-list"></div>
+
+    <!-- Approve Expense Modal -->
+    <div id="exp-approve-modal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <button class="modal-close" onclick="closeExpApproveModal()">×</button>
+        <div class="modal-title">Approve Expense</div>
+        <p>Expense Amount: <strong id="exp-approve-amount"></strong></p>
+        <div id="exp-advance-section" style="margin:16px 0;"></div>
+        <div class="btn-row mt-2">
+          <button class="btn btn-success" onclick="confirmApproveExpense()">✅ Confirm Approval</button>
+          <button class="btn btn-outline" onclick="closeExpApproveModal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: COMPANY ADVANCE LEDGER ════════════════════════ -->
+  <div id="screen-admin-advance-ledger" class="screen hidden">
+    <div class="page-header"><div class="page-title">Company Advance &amp; Expense Ledger</div></div>
+    <div class="card">
+      <div class="form-group">
+        <label>Select Employee</label>
+        <select id="ledger-emp-select" class="form-control" onchange="loadLedgerForEmp()"></select>
+      </div>
+    </div>
+    <div id="ledger-table"></div>
+
+    <div id="give-advance-section" class="card hidden">
+      <div class="card-title">Give Company Advance</div>
+      <div class="form-row">
+        <div class="form-group"><label>Date</label><input id="adv-date" type="date" class="form-control"></div>
+        <div class="form-group"><label>Amount (₹)</label><input id="adv-amount" type="number" class="form-control" min="0"></div>
+      </div>
+      <div class="form-group"><label>Reference</label><input id="adv-ref" type="text" class="form-control" placeholder="Cheque/UTR/Cash"></div>
+      <div class="form-group"><label>Note</label><input id="adv-note" type="text" class="form-control" placeholder="Purpose…"></div>
+      <button class="btn btn-primary" onclick="giveCompanyAdvance()">Record Advance</button>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: SALARY ADVANCE ════════════════════════════════ -->
+  <div id="screen-admin-salary-advance" class="screen hidden">
+    <div class="page-header"><div class="page-title">Salary Advance</div></div>
+
+    <div class="card">
+      <div class="card-title">Give Salary Advance</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Employee</label>
+          <select id="sa-give-emp" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input id="sa-give-date" type="date" class="form-control">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount (₹)</label>
+          <input id="sa-give-amount" type="number" class="form-control" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>Note</label>
+          <input id="sa-give-note" type="text" class="form-control" placeholder="Purpose…">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="giveSalaryAdvance()">Record Salary Advance</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Outstanding Summary — All Employees</div>
+      <div id="sa-summary"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Employee Ledger</div>
+      <div class="form-group">
+        <label>Select Employee</label>
+        <select id="sa-emp-select" class="form-control" onchange="loadSaLedger()"></select>
+      </div>
+      <div id="sa-ledger-section" class="hidden">
+        <div id="sa-ledger"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: EXPENSE REPORTS ═══════════════════════════════ -->
+  <div id="screen-admin-expense-reports" class="screen hidden">
+    <div class="page-header"><div class="page-title">Company Expense Reports</div></div>
+    <div class="card">
+      <div class="form-row">
+        <div class="form-group"><label>Employee</label>
+          <select id="exp-rpt-emp" class="form-control"><option value="">All Employees</option></select></div>
+        <div class="form-group"><label>Category</label>
+          <select id="exp-rpt-cat" class="form-control">
+            <option value="">All</option>
+            <option>Travel</option><option>Food</option><option>Local Conveyance</option>
+            <option>Parts/Components</option><option>Accommodation</option><option>Other</option>
+          </select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>From Date</label><input id="exp-rpt-from" type="date" class="form-control"></div>
+        <div class="form-group"><label>To Date</label><input id="exp-rpt-to" type="date" class="form-control"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Client</label>
+          <select id="exp-rpt-client" class="form-control"><option value="">All Clients</option></select></div>
+        <div class="form-group"><label>Status</label>
+          <select id="exp-rpt-status" class="form-control">
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="loadExpenseReport()">Load Report</button>
+    </div>
+    <div id="exp-report-output"></div>
+  </div>
+
+  <!-- ═══ ADMIN: PAYROLL ════════════════════════════════════════ -->
+  <div id="screen-admin-payroll" class="screen hidden">
+    <div class="page-header"><div class="page-title">Payroll</div></div>
+    <div class="card">
+      <div class="form-group">
+        <label>Payroll Month</label>
+        <input id="payroll-month-picker" type="month" class="form-control" onchange="onPayrollMonthChange()">
+      </div>
+      <div id="payroll-lock-notice" class="hidden" style="background:#FEF9E7;color:#9A7D0A;padding:10px;border-radius:8px;font-size:13px;">
+        ⚠️ This month is locked (payment date has passed). Admin can Reopen individual records if correction is needed.
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <div id="payroll-grid"></div>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: PAYROLL SUMMARY ═══════════════════════════════ -->
+  <div id="screen-admin-payroll-summary" class="screen hidden">
+    <div class="page-header"><div class="page-title">Payroll Summary</div></div>
+    <div class="card">
+      <div class="form-group">
+        <label>Financial Year</label>
+        <select id="pay-summary-year" class="form-control" onchange="loadPayrollSummary()"></select>
+      </div>
+    </div>
+    <div id="pay-summary-output"></div>
+  </div>
+
+  <!-- ═══ ADMIN: SALARY SLIPS ═══════════════════════════════════ -->
+  <div id="screen-admin-salary-slips" class="screen hidden">
+    <div class="page-header"><div class="page-title">Salary Slips</div></div>
+    <div class="card">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Employee</label>
+          <select id="slip-emp" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label>Month</label>
+          <input id="slip-month" type="month" class="form-control">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="generateSlip('pdf')">📥 Download PDF</button>
+        <button class="btn btn-outline" onclick="generateSlip('word')">📄 Download Word</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:8px;">
+      Salary slips are generated directly in your browser and not stored on the server.
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN: SETTINGS ═══════════════════════════════════════ -->
+  <div id="screen-admin-settings" class="screen hidden">
+    <div class="page-header"><div class="page-title">Payroll Settings</div></div>
+
+    <div class="card">
+      <div class="card-title">Company Information</div>
+      <div class="form-group"><label>Company Name</label><input id="set-company-name" type="text" class="form-control"></div>
+      <div class="form-group"><label>Registered Address</label><textarea id="set-address" class="form-control" rows="2"></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>CIN</label><input id="set-cin" type="text" class="form-control"></div>
+        <div class="form-group"><label>GST Number</label><input id="set-gst" type="text" class="form-control"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>PT Monthly (₹)</label><input id="set-pt-monthly" type="number" class="form-control"></div>
+        <div class="form-group"><label>PT February (₹)</label><input id="set-pt-february" type="number" class="form-control"></div>
+      </div>
+      <div class="form-group"><label>Salary Payment Day (of following month)</label><input id="set-payment-day" type="number" class="form-control" min="1" max="28"></div>
+      <button class="btn btn-primary" onclick="saveCompanySettings()">Save Settings</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Allowance Rules</div>
+      <div id="allowance-rules-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Company Holidays</div>
+      <div id="holidays-list" style="margin-bottom:12px;"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Date</label><input id="new-holiday-date" type="date" class="form-control"></div>
+        <div class="form-group"><label>Holiday Name</label><input id="new-holiday-name" type="text" class="form-control" placeholder="e.g. Diwali"></div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="addHoliday()">+ Add Holiday</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Client Companies</div>
+      <div id="clients-list" style="margin-bottom:12px;"></div>
+      <div class="form-group"><label>New Client Name</label><input id="new-client-name" type="text" class="form-control" placeholder="Client name…"></div>
+      <button class="btn btn-outline btn-sm" onclick="addClient()">+ Add Client</button>
+    </div>
+  </div>
+
+  <!-- ═══ ATTENDANCE AUDIT MODAL ══════════════════════════════ -->
+  <div id="audit-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeAuditModal()">×</button>
+      <div class="modal-title">Attendance Change History</div>
+      <div id="audit-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ═══ BOTTOM NAV ═════════════════════════════════════════=== -->
+  <nav id="nav-bar" class="hidden">
+    <!-- Employee Nav -->
+    <div id="nav-emp" class="hidden" style="display:contents">
+      <button class="nav-item" data-screen="attendance"    onclick="showScreen('attendance')">
+        <span class="nav-icon">📋</span><span>Attendance</span>
+      </button>
+      <button class="nav-item" data-screen="leave-history" onclick="showScreen('leave-history')">
+        <span class="nav-icon">🗓️</span><span>Leave</span>
+      </button>
+      <button class="nav-item" data-screen="my-expenses"   onclick="showScreen('my-expenses')">
+        <span class="nav-icon">💸</span><span>Expenses</span>
+      </button>
+    </div>
+    <!-- Admin Nav -->
+    <div id="nav-admin" class="hidden" style="display:contents">
+      <button class="nav-item" data-screen="admin-dashboard"  onclick="showScreen('admin-dashboard')">
+        <span class="nav-icon">🏠</span><span>Dashboard</span>
+      </button>
+      <button class="nav-item" data-screen="admin-employees"  onclick="showScreen('admin-employees')">
+        <span class="nav-icon">👥</span><span>Employees</span>
+      </button>
+      <button class="nav-item" data-screen="admin-payroll"    onclick="showScreen('admin-payroll')">
+        <span class="nav-icon">💰</span><span>Payroll</span>
+      </button>
+      <button class="nav-item" data-screen="admin-attendance" onclick="showScreen('admin-attendance')">
+        <span class="nav-icon">📊</span><span>Attendance</span>
+      </button>
+      <button class="nav-item" onclick="toggleAdminMore()">
+        <span class="nav-icon">⋯</span><span>More</span>
+      </button>
+    </div>
+
+    <!-- Admin More Menu (slides up) -->
+    <div id="admin-more-menu" class="hidden more-menu">
+      <div class="more-menu-grid">
+        <button class="more-item" onclick="showScreen('admin-leave-approval');toggleAdminMore()">🗓️ Leave Approvals</button>
+        <button class="more-item" onclick="showScreen('admin-expense-approval');toggleAdminMore()">💸 Expense Approvals</button>
+        <button class="more-item" onclick="showScreen('admin-advance-ledger');toggleAdminMore()">💵 Company Advance</button>
+        <button class="more-item" onclick="showScreen('admin-salary-advance');toggleAdminMore()">🏦 Salary Advance</button>
+        <button class="more-item" onclick="showScreen('admin-expense-reports');toggleAdminMore()">📋 Expense Reports</button>
+        <button class="more-item" onclick="showScreen('admin-payroll-summary');toggleAdminMore()">📈 Payroll Summary</button>
+        <button class="more-item" onclick="showScreen('admin-salary-slips');toggleAdminMore()">📄 Salary Slips</button>
+        <button class="more-item" onclick="showScreen('admin-settings');toggleAdminMore()">⚙️ Settings</button>
+      </div>
+    </div>
+  </nav>
+
+</div><!-- #app -->
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<!-- ── External Libraries ────────────────────────────────────── -->
+<!-- Supabase -->
+<script src="js/config.js"></script>
+<!-- jsPDF for PDF salary slips -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- docx.js for Word salary slips -->
+<script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
+
+<!-- App Modules (loaded as regular scripts for GitHub Pages compatibility) -->
+<script type="module" src="js/app.js"></script>
+<script src="js/screens/attendance.js" defer></script>
+<script src="js/screens/admin-dashboard.js" defer></script>
+<script src="js/screens/admin-employees.js" defer></script>
+<script src="js/screens/admin-payroll.js" defer></script>
+<script src="js/screens/leave-expense.js" defer></script>
+<script src="js/screens/salary-slips.js" defer></script>
+<script src="js/screens/admin-settings.js" defer></script>
+<script src="js/screens/admin-attendance.js" defer></script>
+<script src="js/screens/admin-leave-approval.js" defer></script>
+<script src="js/screens/admin-expense-approval.js" defer></script>
+<script src="js/screens/admin-expense-reports.js" defer></script>
+<script src="js/screens/admin-salary-advance.js" defer></script>
+<script src="js/screens/admin-payroll-summary.js" defer></script>
+
+<!-- Service Worker Registration -->
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(console.error);
+  }
+</script>
+</body>
+</html>

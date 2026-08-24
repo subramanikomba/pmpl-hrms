@@ -1,0 +1,3 @@
+// PMPL HRMS — Supabase Configuration
+const SUPABASE_URL = 'https://pyuybtrkdlbpldffnyzy.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5dXlidHJrZGxicGxkZmZueXp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc1Nzk5NDMsImV4cCI6MjEwMzE1NTk0M30.RVBcxrbs4dY2dUAre8BrtrJsuvil0lfFn9cVsPNM_nA';
