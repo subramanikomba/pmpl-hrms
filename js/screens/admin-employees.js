@@ -36,8 +36,15 @@
   // ── Add Employee ──────────────────────────────────────────────
   window.showAddEmployee = function() {
     document.getElementById('emp-modal-title').textContent = 'Add Employee';
-    document.getElementById('emp-form').reset();
-    document.getElementById('emp-form-id').value = '';
+    document.getElementById('emp-form-id').value       = '';
+    document.getElementById('emp-first-name').value    = '';
+    document.getElementById('emp-last-name').value     = '';
+    document.getElementById('emp-username').value      = '';
+    document.getElementById('emp-email').value         = '';
+    document.getElementById('emp-designation').value   = '';
+    document.getElementById('emp-pan').value            = '';
+    document.getElementById('emp-is-admin').checked    = false;
+    if (document.getElementById('emp-password')) document.getElementById('emp-password').value = '';
     document.getElementById('emp-modal-pw-section').classList.remove('hidden');
     document.getElementById('emp-modal').classList.remove('hidden');
   };
@@ -78,23 +85,38 @@
     }
 
     if (!id) {
-      // New employee: create auth user first
+      // New employee: create auth user via Edge Function (uses service role
+      // server-side, so it never touches the admin's own session and always
+      // sets up instance_id / identities / timestamps correctly).
       if (!password || password.length < 6) {
         window.showToast('Password must be at least 6 characters','error'); return;
       }
-      const { data: authData, error: authErr } = await window.sb.auth.admin
-        ? await createAuthUser(email, password)
-        : { data: null, error: { message: 'Use Supabase dashboard to create first admin' } };
 
-      if (authErr) { window.showToast('Auth error: ' + authErr.message,'error'); return; }
+      const { data: { session } } = await window.sb.auth.getSession();
+      if (!session) { window.showToast('Session expired, please log in again','error'); return; }
 
-      const { error } = await window.sb.from('employees').insert({
-        auth_user_id: authData?.user?.id,
-        first_name: firstName, last_name: lastName,
-        username, contact_email: email,
-        designation, pan, is_admin: isAdmin
-      });
-      if (error) { window.showToast('Error: ' + error.message,'error'); return; }
+      let resp, result;
+      try {
+        resp = await fetch(SUPABASE_URL + '/functions/v1/create-employee', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + session.access_token
+          },
+          body: JSON.stringify({
+            email, password, first_name: firstName, last_name: lastName,
+            username, designation, pan, is_admin: isAdmin
+          })
+        });
+        result = await resp.json();
+      } catch (e) {
+        window.showToast('Network error: ' + e.message, 'error'); return;
+      }
+
+      if (!resp.ok || result.error) {
+        window.showToast('Error: ' + (result.error || 'Failed to create employee'), 'error');
+        return;
+      }
     } else {
       // Update existing
       const { error } = await window.sb.from('employees').update({
@@ -110,12 +132,6 @@
     closeEmpModal();
     loadEmployees();
   };
-
-  async function createAuthUser(email, password) {
-    // Uses Supabase Admin API via service role — for browser-side, we use signUp
-    // and then immediately confirm. In production, this should be done via Edge Function.
-    return await window.sb.auth.signUp({ email, password, options: { emailRedirectTo: null } });
-  }
 
   window.toggleEmpStatus = async function(id, currentStatus) {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';

@@ -1,5 +1,5 @@
 // PMPL HRMS — Service Worker
-const CACHE = 'pmpl-hrms-v2';
+const CACHE = 'pmpl-hrms-v3';
 const STATIC = [
   '/',
   '/index.html',
@@ -20,6 +20,10 @@ const STATIC = [
   '/js/screens/salary-slips.js',
   '/js/screens/admin-settings.js',
   '/assets/pmpl_logo.jpg',
+  '/assets/icon-192.png',
+  '/assets/icon-512.png',
+  '/assets/icon-maskable-192.png',
+  '/assets/icon-maskable-512.png',
   '/manifest.json'
 ];
 
