@@ -56,7 +56,7 @@ export function CompanyAdvancePage() {
   const columns: Column<LedgerRow>[] = [
     { key: 'date', header: 'Date', cell: (r) => formatDate(r.txn_date) },
     { key: 'type', header: 'Type',
-      cell: (r) => <Badge tone={r.txn_type === 'advance' ? 'info' : 'purple'}>
+      cell: (r) => <Badge tone={r.txn_type === 'advance' ? 'info' : 'neutral-alt'}>
         {r.txn_type === 'advance' ? 'Advance given' : 'Expense accounted'}
       </Badge> },
     { key: 'debit', header: 'Advance', align: 'right',

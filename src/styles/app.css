@@ -1,21 +1,43 @@
 /* ── Design tokens ──────────────────────────────────────────── */
+/*
+ * Restrained enterprise palette. The clay accent is a desaturated
+ * relative of the PMPL logo hue and is reserved for primary actions,
+ * active navigation and the brand mark — never for secondary controls.
+ * Status colours are muted but remain mutually distinguishable and
+ * distinct from the accent.
+ */
 :root {
-  --brand: #C4402F;
-  --brand-dark: #A53324;
-  --ink: #1F2933;
-  --ink-2: #3E4C59;
-  --muted: #7B8794;
-  --line: #E1E7EC;
-  --bg: #F4F6F8;
+  /* Brand accent — use sparingly */
+  --brand: #9B686D;          /* cooler dusty rose-clay, 4.57:1 on white */
+  --brand-dark: #855A5F;
+  --brand-soft: #F1E6E7;
+
+  /* Structural neutrals */
+  --nav: #2B3944;
+  --nav-2: #3C4C59;
+  --ink: #232D36;
+  --ink-2: #4A5A67;
+  --muted: #7C8A96;
+  --line: #E3E1DC;
+  --bg: #F2F1ED;
   --surface: #FFFFFF;
-  --nav: #26333F;
-  --ok: #1E8449; --ok-bg: #E7F6EC;
-  --warn: #9A6700; --warn-bg: #FFF6E0;
-  --danger: #B42318; --danger-bg: #FEECEA;
-  --info: #175CD3; --info-bg: #EAF1FE;
-  --purple: #6941C6; --purple-bg: #F2EDFB;
+  --surface-2: #FAF9F6;
+  /* Inputs get their own surface + line so controls never merge into cards */
+  --field-bg: #F7F6F2;
+  --field-line: #D6D3CC;
+  --field-line-strong: #C4C0B8;
+  --focus-ring: rgba(155,104,109,.18);
+
+  /* Status — muted, still unambiguous */
+  --ok: #4A7C59;      --ok-bg: #EAF0EB;
+  --warn: #8A6D3B;    --warn-bg: #F5EFE3;
+  --danger: #9C4A42;  --danger-bg: #F5E9E7;
+  --info: #3E6180;    --info-bg: #E9EEF2;
+  --neutral: #5C6B78; --neutral-bg: #ECEEF0;
+
   --radius: 10px;
-  --shadow: 0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.04);
+  --shadow: 0 1px 2px rgba(35,45,54,.06), 0 1px 3px rgba(35,45,54,.05);
+  --shadow-lg: 0 12px 32px rgba(35,45,54,.16);
   --font: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
 }
 
@@ -58,7 +80,7 @@ a { color: var(--brand); }
 .nav-more-backdrop { position: fixed; inset: 0; z-index: 41; }
 .nav-more-menu { position: absolute; right: 0; top: 100%; z-index: 42; min-width: 240px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 0 0 10px 10px;
-  box-shadow: 0 8px 24px rgba(16,24,40,.16); overflow: hidden; }
+  box-shadow: var(--shadow-lg); overflow: hidden; }
 .nav-more-item { display: block; padding: 11px 16px; font-size: 13.5px; color: var(--ink);
   text-decoration: none; }
 .nav-more-item:hover, .nav-more-item.is-active { background: var(--brand); color: #fff; }
@@ -97,27 +119,49 @@ a { color: var(--brand); }
 .btn-sm { padding: 6px 12px; font-size: 12.5px; border-radius: 6px; }
 .btn-primary { background: var(--brand); color: #fff; }
 .btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
-.btn-secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.btn-secondary { background: var(--surface); color: var(--ink);
+  border-color: var(--field-line-strong); box-shadow: 0 1px 1px rgba(35,45,54,.05); }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-2); border-color: var(--muted); }
 .btn-secondary:hover:not(:disabled) { border-color: var(--muted); }
 .btn-success { background: var(--ok); color: #fff; }
+.btn-success:hover:not(:disabled) { background: #3E6A4B; }
 .btn-danger { background: var(--danger); color: #fff; }
-.btn-ghost { background: none; color: var(--ink-2); border-color: var(--line); }
-.btn-ghost:hover:not(:disabled) { background: var(--bg); }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-ghost { background: var(--surface-2); color: var(--ink);
+  border-color: var(--field-line-strong); font-weight: 500;
+  box-shadow: 0 1px 1px rgba(35,45,54,.05); }
+.btn-ghost:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+.btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Disabled controls go neutral rather than a washed-out tint of their colour */
+.btn:disabled { cursor: not-allowed; opacity: 1;
+  background: #ECEAE5; color: #A7AEB5; border-color: transparent; box-shadow: none; }
 .btn.full { width: 100%; }
 
 /* ── Forms ──────────────────────────────────────────────────── */
 .field { margin-bottom: 14px; }
 .field-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 5px; }
 .field-hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
-.input { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
-  font-size: 14px; font-family: inherit; background: var(--surface); color: var(--ink); }
-.input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(196,64,47,.12); }
+.input { width: 100%; padding: 9px 12px; border: 1px solid var(--field-line);
+  border-radius: 8px; font-size: 14px; font-family: inherit;
+  background: var(--field-bg); color: var(--ink);
+  box-shadow: inset 0 1px 2px rgba(35,45,54,.04);
+  transition: border-color .15s, background .15s, box-shadow .15s; }
+.input:hover:not(:disabled):not(:focus) { border-color: var(--field-line-strong); }
+.input:focus { outline: none; background: var(--surface); border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--focus-ring); }
+.input:disabled { background: #EFEEE9; color: var(--muted); cursor: not-allowed; }
+.input::placeholder { color: #9AA6B0; }
+/* native select needs an explicit arrow affordance once it has a tinted bg */
+select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath fill='%237C8A96' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 14px; }
-.cell-input { width: 92px; padding: 5px 7px; border: 1px solid var(--line);
-  border-radius: 6px; font-size: 12.5px; font-family: inherit; }
-.cell-input:disabled { background: var(--bg); color: var(--muted); }
+.cell-input { width: 92px; padding: 5px 7px; border: 1px solid var(--field-line);
+  border-radius: 6px; font-size: 12.5px; font-family: inherit;
+  background: var(--field-bg); color: var(--ink); }
+.cell-input:focus { outline: none; background: var(--surface);
+  border-color: var(--brand); box-shadow: 0 0 0 2px var(--focus-ring); }
+.cell-input:disabled { background: #EFEEE9; color: var(--muted); }
 
 /* ── Badges ─────────────────────────────────────────────────── */
 .badge { display: inline-block; padding: 2px 9px; border-radius: 20px;
@@ -127,7 +171,7 @@ a { color: var(--brand); }
 .badge-warn { background: var(--warn-bg); color: var(--warn); }
 .badge-danger { background: var(--danger-bg); color: var(--danger); }
 .badge-info { background: var(--info-bg); color: var(--info); }
-.badge-purple { background: var(--purple-bg); color: var(--purple); }
+.badge-neutral-alt { background: var(--neutral-bg); color: var(--neutral); }
 
 /* ── Tables ─────────────────────────────────────────────────── */
 .table-scroll { overflow-x: auto; }
@@ -162,7 +206,7 @@ a { color: var(--brand); }
 .att-cell { width: 26px; height: 24px; font-size: 10px; font-weight: 600; }
 .cell-present { background: var(--ok-bg); color: var(--ok); }
 .cell-leave   { background: var(--info-bg); color: var(--info); }
-.cell-weekly  { background: var(--purple-bg); color: var(--purple); }
+.cell-weekly  { background: var(--neutral-bg); color: var(--neutral); }
 .cell-holiday { background: var(--warn-bg); color: var(--warn); }
 .cell-absent  { background: var(--danger-bg); color: var(--danger); }
 .cell-future  { color: #C7CFD6; }
@@ -172,24 +216,28 @@ a { color: var(--brand); }
   border-radius: 4px; margin-left: 10px; }
 
 /* ── Login ──────────────────────────────────────────────────── */
-.login-page { min-height: 100vh; display: flex; align-items: center;
-  justify-content: center; padding: 20px; background: var(--bg); }
-.login-card { background: var(--surface); border: 1px solid var(--line);
-  border-radius: 14px; box-shadow: 0 4px 24px rgba(16,24,40,.1);
+.login-page { position: relative; min-height: 100vh; display: flex; align-items: center;
+  justify-content: center; padding: 20px; overflow: hidden;
+  background: linear-gradient(160deg, #2B3944 0%, #243039 55%, #1E282F 100%); }
+/* faint warm wash picks up the brand hue without reading as a gradient effect */
+.login-page::before { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 30% 20%, rgba(155,104,109,.14), transparent 60%); }
+.login-card { position: relative; background: var(--surface); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px; box-shadow: var(--shadow-lg);
   padding: 34px 28px; width: 100%; max-width: 380px; }
 .login-logo { display: block; width: 68px; height: 68px; border-radius: 50%;
   object-fit: cover; margin: 0 auto 16px; }
-.login-title { text-align: center; font-size: 20px; font-weight: 700; color: var(--brand); }
+.login-title { text-align: center; font-size: 20px; font-weight: 700; color: var(--ink); letter-spacing: .3px; }
 .login-sub { text-align: center; font-size: 12.5px; color: var(--muted); margin-bottom: 22px; }
 .login-error { background: var(--danger-bg); color: var(--danger); padding: 9px 12px;
   border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
 .login-foot { text-align: center; font-size: 11px; color: var(--muted); margin-top: 18px; }
 
 /* ── Modal ──────────────────────────────────────────────────── */
-.modal-overlay { position: fixed; inset: 0; background: rgba(16,24,40,.45);
+.modal-overlay { position: fixed; inset: 0; background: rgba(30,40,47,.55);
   display: flex; align-items: center; justify-content: center; padding: 18px; z-index: 100; }
 .modal { background: var(--surface); border-radius: 14px; width: 100%;
-  max-height: 90vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(16,24,40,.24); }
+  max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
 .modal-sm { max-width: 420px; } .modal-md { max-width: 560px; } .modal-lg { max-width: 860px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between;
   padding: 18px 20px 0; }
@@ -202,7 +250,7 @@ a { color: var(--brand); }
 .toast-stack { position: fixed; top: 16px; right: 16px; z-index: 200;
   display: flex; flex-direction: column; gap: 8px; }
 .toast { padding: 11px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
-  box-shadow: 0 6px 20px rgba(16,24,40,.16); max-width: 340px; }
+  box-shadow: 0 6px 18px rgba(35,45,54,.14); max-width: 340px; }
 .toast-success { background: var(--ok-bg); color: var(--ok); }
 .toast-error { background: var(--danger-bg); color: var(--danger); }
 .toast-info { background: var(--info-bg); color: var(--info); }

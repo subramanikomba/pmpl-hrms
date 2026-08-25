@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
 
 export type BadgeTone =
-  | 'neutral' | 'success' | 'warn' | 'danger' | 'info' | 'purple';
+  | 'neutral' | 'success' | 'warn' | 'danger' | 'info' | 'neutral-alt';
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   present: 'success', approved: 'success', paid: 'success', active: 'success',
   pending: 'warn', draft: 'warn',
   rejected: 'danger', absent: 'danger', inactive: 'danger',
   paid_leave: 'info', processed: 'info', advance: 'info',
-  weekly_off: 'purple', company_holiday: 'purple', expense: 'purple',
+  weekly_off: 'neutral-alt', company_holiday: 'neutral-alt', expense: 'neutral-alt',
 };
 
 const STATUS_LABEL: Record<string, string> = {
