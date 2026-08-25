@@ -12,7 +12,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'favicon-32.png', 'favicon-16.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'PMPL HRMS',
         short_name: 'PMPL HRMS',
@@ -24,10 +24,27 @@ export default defineConfig({
         theme_color: '#2B3944',
         orientation: 'portrait-primary',
         icons: [
+          { src: 'icons/icon-96.png', sizes: '96x96', type: 'image/png', purpose: 'any' },
+          { src: 'icons/icon-144.png', sizes: '144x144', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icons/icon-384.png', sizes: '384x384', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
           { src: 'icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+        shortcuts: [
+          {
+            name: 'Mark attendance',
+            short_name: 'Attendance',
+            url: './#/attendance',
+            icons: [{ src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'Payroll',
+            short_name: 'Payroll',
+            url: './#/admin/payroll',
+            icons: [{ src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+          },
         ],
       },
       workbox: {
