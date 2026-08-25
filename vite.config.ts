@@ -32,6 +32,12 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,jpg,svg,woff2}'],
+        // Take over immediately on a new deploy instead of waiting for every
+        // tab to close, and drop stale precached bundles. Without this a
+        // returning user can keep seeing the previous build.
+        clientsClaim: true,
+        skipWaiting: true,
+        cleanupOutdatedCaches: true,
         // Never cache Supabase auth/REST traffic — the SW must not be able to
         // serve a stale session or stale business data.
         navigateFallbackDenylist: [/^\/api/],

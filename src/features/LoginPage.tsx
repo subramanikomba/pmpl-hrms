@@ -37,8 +37,9 @@ export function LoginPage() {
     <div className="login-page">
       <form className="login-card" onSubmit={(e) => void onSubmit(e)}>
         <img src={logo} alt="" className="login-logo" />
-        <h1 className="login-title">PMPL HRMS</h1>
-        <p className="login-sub">Employee Management &amp; Payroll</p>
+        <p className="login-company">Polyfill Microns Pvt. Ltd.</p>
+        <h1 className="login-title">HRMS</h1>
+        <p className="login-sub">Employee Management &amp; Payroll · sign in to continue</p>
 
         <div className="field">
           <label className="field-label" htmlFor="login-email">Email address</label>
