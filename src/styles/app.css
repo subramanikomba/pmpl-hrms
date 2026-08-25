@@ -318,5 +318,9 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
     border-left: 3px solid transparent; }
   .nav-link.is-active { border-bottom-color: rgba(255,255,255,.08); border-left-color: var(--brand); }
   .nav-more { margin-left: 0; }
-  .nav-more-menu { position: static; width: 100%; border-radius: 0; box-shadow: none; }
+  /* position:relative (not static) so z-index applies — a static element is
+     outside the stacking order, letting .nav-more-backdrop (z-index 41) cover
+     the submenu and swallow taps. Renders identically to static in flow. */
+  .nav-more-menu { position: relative; z-index: 42; width: 100%;
+    border-radius: 0; box-shadow: none; }
 }
