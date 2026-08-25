@@ -1,93 +1,69 @@
 # PMPL HRMS
 
-**Polyfill Microns Pvt. Ltd. — Employee Management, Attendance & Payroll System**
+Employee management, attendance and payroll for **Polyfill Microns Pvt. Ltd.**
 
-Live URL: https://hrms.polyfillmicrons.in  
-Backend: Supabase Project `pyuybtrkdlbpldffnyzy` (Mumbai / ap-south-1)
+Live: <https://hrms.polyfillmicrons.in>
 
----
+## Stack
 
-## First-Time Setup
+| Concern | Choice |
+| --- | --- |
+| UI | React 19 + TypeScript (strict) |
+| Build | Vite |
+| Routing | React Router (hash router — GitHub Pages cannot rewrite deep paths) |
+| Backend | Supabase (Postgres + Auth + Row Level Security) |
+| PWA | `vite-plugin-pwa` (Workbox) |
+| Tests | Vitest |
+| Hosting | GitHub Pages via GitHub Actions |
 
-### 1. Create the Admin User in Supabase
+## Commands
 
-Go to **Supabase Dashboard → Authentication → Users → Invite User**  
-Enter the admin email and send invitation. The admin sets their own password.
-
-Then in **Supabase Dashboard → Table Editor → employees**, insert a row:
-```
-auth_user_id  → (paste the Auth user's UUID from Authentication → Users)
-first_name    → Subramani
-last_name     → (your last name)
-username      → admin
-contact_email → your@email.com
-designation   → Director
-is_admin      → true
-status        → active
-```
-
-### 2. Deploy to GitHub Pages
-
-Push this repository to `pmpl-hrms` on GitHub.  
-Go to **Settings → Pages → Source → GitHub Actions**.  
-The `deploy.yml` workflow will auto-deploy on every push to `main`.
-
-### 3. Custom Domain (hrms.polyfillmicrons.in)
-
-In your DNS provider, add:
-```
-Type: CNAME
-Name: hrms
-Value: subramanikomba.github.io
+```bash
+npm install      # install dependencies
+npm run dev      # local dev server
+npm run typecheck# TypeScript, no emit
+npm test         # unit tests
+npm run build    # typecheck + production build into dist/
+npm run preview  # serve the production build locally
 ```
 
-In GitHub Pages Settings → Custom Domain, enter `hrms.polyfillmicrons.in` and enable HTTPS.
-
----
-
-## Project Structure
+## Architecture
 
 ```
-pmpl-hrms/
-├── index.html              — Single-page application
-├── manifest.json           — PWA manifest
-├── sw.js                   — Service worker (offline support)
-├── assets/
-│   └── pmpl_logo.jpg       — Company logo
-├── css/
-│   └── style.css           — Application styles
-├── js/
-│   ├── config.js           — Supabase credentials
-│   ├── app.js              — Auth, routing, shared utilities
-│   └── screens/
-│       ├── attendance.js        — Employee attendance dashboard
-│       ├── admin-dashboard.js   — Admin overview
-│       ├── admin-employees.js   — Employee & salary management
-│       ├── admin-payroll.js     — Payroll calculation
-│       ├── leave-expense.js     — Leave, expenses, advance ledger
-│       ├── salary-slips.js      — PDF & Word slip generation
-│       └── admin-settings.js    — Company settings & rules
-└── .github/workflows/
-    └── deploy.yml          — Auto-deploy to GitHub Pages
+src/
+  assets/        logo
+  auth/          AuthProvider, useAuth, RequireAuth route guard
+  components/ui/ presentational primitives (Button, Card, Modal, DataTable…)
+  features/      one folder per domain area, each owning its screens
+  layout/        authenticated app shell (top bar, nav, inactivity dialog)
+  lib/           supabase client, data-access layer, payroll rules, formatting
+  routes/        route table
+  styles/        single stylesheet with design tokens
+  types/         database domain types
 ```
 
-## Supabase Database
+Principles worth preserving:
 
-| Table | Purpose |
-|-------|---------|
-| `employees` | Employee profiles (linked to Auth) |
-| `salary_structures` | Effective-dated salary components |
-| `attendance` | Daily attendance records |
-| `attendance_audit` | All attendance changes with history |
-| `leave_requests` | Leave applications and approvals |
-| `company_advances` | Company money given to employees |
-| `company_expenses` | Employee expense claims |
-| `company_advance_ledger` | View — running balance per employee |
-| `salary_advances` | Salary advance records |
-| `salary_advance_recoveries` | Payroll-wise recovery tracking |
-| `payroll` | Monthly payroll records |
-| `payroll_audit` | Lock/reopen audit trail |
-| `company_settings` | PMPL company info and PT rates |
-| `company_holidays` | Admin-configured paid holidays |
-| `allowance_rules` | Configurable bonus/allowance percentages |
-| `client_companies` | Client list for expense tagging |
+- **No global `window` functions.** Everything is a module import or React context.
+- **No `innerHTML`.** All rendering goes through JSX, so values are escaped by React.
+- **Business rules are pure functions** in `src/lib/payroll.ts`, independent of React
+  and Supabase, and covered by unit tests.
+- **All Supabase queries live in `src/lib/api.ts`** rather than inside components.
+- **Authorisation is enforced by Postgres RLS.** The `RequireAuth` guard is
+  UX only — it is not the security boundary.
+
+## Security model
+
+- Auth tokens are held in `sessionStorage`, so closing the browser ends the
+  session. A same-tab reload stays signed in.
+- Idle sessions warn at 25 minutes and sign out at 30.
+- Every table has Row Level Security: employees can read only their own rows;
+  admins have organisation-wide access.
+- Creating employee logins requires the service role, so it runs in the
+  `create-employee` Supabase Edge Function — never in the browser.
+
+## Deployment
+
+Pushing to `main` runs typecheck and tests; only if both pass does the build
+deploy to GitHub Pages. Set **Settings → Pages → Source → GitHub Actions**, and
+point a `CNAME` DNS record for `hrms` at `<user>.github.io`.

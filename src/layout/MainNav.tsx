@@ -1,0 +1,96 @@
+import { useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { useAuth } from '@/auth/useAuth';
+
+interface NavItem { to: string; label: string }
+
+const EMPLOYEE_NAV: NavItem[] = [
+  { to: '/attendance', label: 'Attendance' },
+  { to: '/leave', label: 'Leave' },
+  { to: '/expenses', label: 'Expenses' },
+];
+
+const ADMIN_PRIMARY: NavItem[] = [
+  { to: '/admin', label: 'Dashboard' },
+  { to: '/admin/employees', label: 'Employees' },
+  { to: '/admin/attendance', label: 'Attendance' },
+  { to: '/admin/leave', label: 'Leave' },
+  { to: '/admin/payroll', label: 'Payroll' },
+  { to: '/admin/salary-slips', label: 'Salary Slips' },
+];
+
+const ADMIN_MORE: NavItem[] = [
+  { to: '/admin/expenses', label: 'Expense Approvals' },
+  { to: '/admin/expense-reports', label: 'Expense Reports' },
+  { to: '/admin/company-advance', label: 'Company Advance' },
+  { to: '/admin/salary-advance', label: 'Salary Advance' },
+  { to: '/admin/payroll-summary', label: 'Payroll Summary' },
+  { to: '/admin/settings', label: 'Payroll Settings' },
+];
+
+export function MainNav() {
+  const { isAdmin } = useAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const primary = isAdmin ? ADMIN_PRIMARY : EMPLOYEE_NAV;
+  const close = () => { setMobileOpen(false); setMoreOpen(false); };
+
+  return (
+    <nav className={`mainnav ${mobileOpen ? 'is-open' : ''}`}>
+      <div className="mainnav-inner">
+        <button
+          className="nav-burger"
+          onClick={() => setMobileOpen((v) => !v)}
+          aria-expanded={mobileOpen}
+          aria-label="Toggle navigation"
+        >
+          ☰ Menu
+        </button>
+
+        <div className="nav-links">
+          {primary.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/admin'}
+              className={({ isActive }) => `nav-link ${isActive ? 'is-active' : ''}`}
+              onClick={close}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+
+          {isAdmin && (
+            <div className="nav-more">
+              <button
+                className="nav-link nav-more-btn"
+                onClick={() => setMoreOpen((v) => !v)}
+                aria-expanded={moreOpen}
+              >
+                More ▾
+              </button>
+              {moreOpen && (
+                <>
+                  <div className="nav-more-backdrop" onClick={() => setMoreOpen(false)} />
+                  <div className="nav-more-menu">
+                    {ADMIN_MORE.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={({ isActive }) => `nav-more-item ${isActive ? 'is-active' : ''}`}
+                        onClick={close}
+                      >
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </nav>
+  );
+}
