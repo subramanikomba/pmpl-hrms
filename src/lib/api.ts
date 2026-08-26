@@ -8,6 +8,7 @@ import { supabase } from './supabase';
 import { SUPABASE_URL } from './config';
 import { isoDate, monthStart } from './payroll';
 import type {
+  ClientLocation, ClientWithLocations,
   AllowanceRule, AttendanceRecord, ClientCompany, CompanyAdvance,
   CompanyExpense, CompanyHoliday, CompanySettings, Employee, LeaveRequest,
   LedgerRow, PayrollRecord, SalaryAdvance, SalaryAdvanceRecovery,
@@ -25,6 +26,11 @@ function unwrapList<T>(res: { data: T[] | null; error: { message: string } | nul
 }
 
 const EMP_FIELDS = 'employee_code, first_name, last_name, designation';
+
+/** Private Supabase Storage bucket holding expense receipts. */
+export const RECEIPT_BUCKET = 'expense-receipts';
+export const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
+export const RECEIPT_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
 
 /* ── Employees ─────────────────────────────────────────────────── */
 export const employeesApi = {
@@ -44,12 +50,31 @@ export const employeesApi = {
     return employeesApi.update(id, { status });
   },
   /**
+   * Reset an employee's password. Runs in an Edge Function because changing
+   * another user's password needs the service role. Touches only auth —
+   * attendance, payroll and historical records are unaffected.
+   */
+  async resetPassword(employeeId: string, password: string): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Your session has expired. Please sign in again.');
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/reset-employee-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ employee_id: employeeId, password }),
+    });
+    const body = (await res.json()) as { error?: string };
+    if (!res.ok || body.error) throw new Error(body.error ?? 'Could not reset password');
+  },
+  /**
    * Creating a login requires the service role, which must never reach the
    * browser — this calls the `create-employee` Edge Function instead.
    */
   async create(input: {
     email: string; password: string; first_name: string; last_name: string;
-    username: string; designation?: string; pan?: string; is_admin: boolean;
+    designation?: string; pan?: string; phone?: string; is_admin: boolean;
   }): Promise<void> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Your session has expired. Please sign in again.');
@@ -97,8 +122,18 @@ export const attendanceApi = {
     return unwrapList<AttendanceRecord>(await q);
   },
   async markPresent(employeeId: string, date: string): Promise<void> {
+    return attendanceApi.selfMark(employeeId, date, 'present');
+  },
+  /**
+   * Employee marking their own present/absent. The permitted date window is
+   * enforced by RLS (public.employee_may_mark); this is the client-side twin
+   * so the UI can disable what the database would reject anyway.
+   */
+  async selfMark(
+    employeeId: string, date: string, status: 'present' | 'absent',
+  ): Promise<void> {
     const { error } = await supabase.from('attendance').upsert(
-      { employee_id: employeeId, date, status: 'present', marked_by: employeeId },
+      { employee_id: employeeId, date, status, marked_by: employeeId },
       { onConflict: 'employee_id,date' },
     );
     if (error) throw new Error(error.message);
@@ -173,12 +208,51 @@ export const expenseApi = {
     if (filters.to) q = q.lte('expense_date', filters.to);
     return unwrapList<WithEmployee<CompanyExpense>>(await q);
   },
-  async submit(input: Omit<CompanyExpense,
-    'id' | 'status' | 'accounted_advance_id' | 'accounted_amount'
-    | 'reviewed_by' | 'review_note' | 'reviewed_at' | 'created_at'>): Promise<void> {
-    const { error } = await supabase.from('company_expenses')
-      .insert({ ...input, status: 'pending' });
+  async submit(
+    input: Omit<CompanyExpense,
+      'id' | 'status' | 'accounted_advance_id' | 'accounted_amount'
+      | 'reviewed_by' | 'review_note' | 'reviewed_at' | 'created_at'>,
+    receipt?: File | null,
+  ): Promise<void> {
+    // Insert first so the row id can key the stored object; the receipt is
+    // uploaded only on submit, never while the user is still filling the form.
+    const { data, error } = await supabase.from('company_expenses')
+      .insert({ ...input, status: 'pending' })
+      .select('id')
+      .single();
     if (error) throw new Error(error.message);
+
+    if (!receipt) return;
+
+    const row = data as { id: string };
+    const ext = (receipt.name.split('.').pop() ?? 'bin').toLowerCase();
+    const path = `${input.employee_id}/${row.id}.${ext}`;
+
+    const { error: upErr } = await supabase.storage
+      .from(RECEIPT_BUCKET)
+      .upload(path, receipt, { upsert: true, contentType: receipt.type });
+
+    if (upErr) {
+      // Keep the expense and the stored path consistent: if the upload fails,
+      // remove the row rather than leaving a claim pointing at nothing.
+      await supabase.from('company_expenses').delete().eq('id', row.id);
+      throw new Error(`Receipt upload failed: ${upErr.message}`);
+    }
+
+    const { error: linkErr } = await supabase.from('company_expenses')
+      .update({ receipt_url: path }).eq('id', row.id);
+    if (linkErr) throw new Error(linkErr.message);
+  },
+
+  /**
+   * Receipts live in a private bucket, so a short-lived signed URL is minted
+   * on demand rather than storing a public link.
+   */
+  async receiptUrl(path: string): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from(RECEIPT_BUCKET).createSignedUrl(path, 300);
+    if (error || !data) throw new Error(error?.message ?? 'Could not open receipt');
+    return data.signedUrl;
   },
   /**
    * Spec: an expense need not relate to an advance. If `advanceId` is given
@@ -194,6 +268,30 @@ export const expenseApi = {
       accounted_advance_id: accounting?.advanceId ?? null,
       accounted_amount: accounting?.amount ?? null,
     }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  /**
+   * Account an ALREADY-APPROVED claim against an advance. Corrects the case
+   * where approval happened without selecting an advance.
+   */
+  async accountAgainstAdvance(
+    id: string, advanceId: string, amount: number,
+  ): Promise<void> {
+    const { error } = await supabase.from('company_expenses').update({
+      accounted_advance_id: advanceId,
+      accounted_amount: amount,
+    }).eq('id', id).eq('status', 'approved');
+    if (error) throw new Error(error.message);
+  },
+  /**
+   * Reverse an accounting entry — the claim stays approved but stops
+   * settling the advance, so the outstanding balance goes back up.
+   */
+  async unaccount(id: string): Promise<void> {
+    const { error } = await supabase.from('company_expenses').update({
+      accounted_advance_id: null,
+      accounted_amount: null,
+    }).eq('id', id).eq('status', 'approved');
     if (error) throw new Error(error.message);
   },
   async reject(id: string, reviewerId: string, note?: string): Promise<void> {
@@ -367,13 +465,62 @@ export const clientApi = {
     if (activeOnly) q = q.eq('is_active', true);
     return unwrapList<ClientCompany>(await q);
   },
-  async add(name: string): Promise<void> {
-    const { error } = await supabase.from('client_companies').insert({ name });
+  /** Companies with their locations, for the settings panel. */
+  async listWithLocations(): Promise<ClientWithLocations[]> {
+    const rows = unwrapList<ClientCompany & { client_locations: ClientLocation[] | null }>(
+      await supabase.from('client_companies')
+        .select('*, client_locations(*)').order('name'),
+    );
+    return rows.map((r) => ({
+      id: r.id, name: r.name, is_active: r.is_active,
+      locations: (r.client_locations ?? [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    }));
+  },
+  /** Create a company and, optionally, its initial locations in one step. */
+  async add(name: string, locations: string[] = []): Promise<void> {
+    const { data, error } = await supabase.from('client_companies')
+      .insert({ name }).select('id').single();
+    if (error) throw new Error(error.message);
+    const clean = locations.map((l) => l.trim()).filter(Boolean);
+    if (clean.length === 0) return;
+    const { error: locErr } = await supabase.from('client_locations')
+      .insert(clean.map((l) => ({ client_id: (data as { id: string }).id, name: l })));
+    if (locErr) throw new Error(locErr.message);
+  },
+  /** Rename only. Descriptive change — never touches payroll or expenses. */
+  async rename(id: string, name: string): Promise<void> {
+    const { error } = await supabase.from('client_companies')
+      .update({ name }).eq('id', id);
     if (error) throw new Error(error.message);
   },
   async setActive(id: string, is_active: boolean): Promise<void> {
     const { error } = await supabase.from('client_companies')
       .update({ is_active }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+};
+
+export const locationApi = {
+  async listFor(clientId: string): Promise<ClientLocation[]> {
+    return unwrapList<ClientLocation>(
+      await supabase.from('client_locations').select('*')
+        .eq('client_id', clientId).order('name'),
+    );
+  },
+  async add(clientId: string, name: string): Promise<void> {
+    const { error } = await supabase.from('client_locations')
+      .insert({ client_id: clientId, name: name.trim() });
+    if (error) throw new Error(error.message);
+  },
+  async rename(id: string, name: string): Promise<void> {
+    const { error } = await supabase.from('client_locations')
+      .update({ name: name.trim() }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase.from('client_locations').delete().eq('id', id);
     if (error) throw new Error(error.message);
   },
 };

@@ -4,8 +4,8 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { clientApi, holidayApi, rulesApi, settingsApi } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { Card } from '@/components/ui/Card';
+import { CompaniesPanel } from './CompaniesPanel';
 import { Button } from '@/components/ui/Button';
-import { StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { TextArea, TextInput } from '@/components/ui/Field';
@@ -25,7 +25,6 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [holidayDate, setHolidayDate] = useState('');
   const [holidayName, setHolidayName] = useState('');
-  const [clientName, setClientName] = useState('');
 
   if (q.loading) return <Spinner label="Loading settings…" />;
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
@@ -65,23 +64,13 @@ export function SettingsPage() {
     }
   }
 
-  async function addClient() {
-    if (!clientName.trim()) { toast.error('Enter a client name.'); return; }
-    try {
-      await clientApi.add(clientName.trim());
-      toast.success('Client added.');
-      setClientName(''); q.reload();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not add client');
-    }
-  }
 
   return (
     <>
       <PageHeader title="Payroll settings"
         subtitle="Company details, holidays, allowance rules and clients" />
 
-      <Card title="Company information">
+      <Card title="Company information" className="settings-card">
         <TextInput label="Company name" value={s.company_name}
           onChange={(e) => set('company_name', e.target.value)} />
         <TextArea label="Registered address" value={s.address ?? ''}
@@ -106,92 +95,74 @@ export function SettingsPage() {
         </Button>
       </Card>
 
-      <Card title="Allowance rules">
-        <p className="muted">
-          Configurable percentages used when calculating allowances.
-        </p>
-        <DataTable
-          columns={[
-            { key: 'desc', header: 'Rule', cell: (r) => r.description },
-            { key: 'rate', header: 'Rate (%)', align: 'right',
-              cell: (r) => (
-                <input
-                  className="cell-input" type="number" step="0.5" defaultValue={r.rate_percent}
-                  onBlur={(e) => {
-                    const v = Number(e.target.value);
-                    if (v !== r.rate_percent) {
-                      void rulesApi.update(r.id, { rate_percent: v })
-                        .then(() => toast.success('Rule updated.'))
+      <Card title="Allowance rules" className="settings-card">
+          <p className="muted">
+            Configurable percentages used when calculating allowances.
+          </p>
+          <DataTable
+            columns={[
+              { key: 'desc', header: 'Rule', cell: (r) => r.description },
+              { key: 'rate', header: 'Rate (%)', align: 'right',
+                cell: (r) => (
+                  <input
+                    className="cell-input" type="number" step="0.5" defaultValue={r.rate_percent}
+                    onBlur={(e) => {
+                      const v = Number(e.target.value);
+                      if (v !== r.rate_percent) {
+                        void rulesApi.update(r.id, { rate_percent: v })
+                          .then(() => toast.success('Rule updated.'))
+                          .catch(() => toast.error('Could not update rule.'));
+                      }
+                    }}
+                  />
+                ) },
+              { key: 'active', header: 'Active', align: 'center',
+                cell: (r) => (
+                  <input type="checkbox" defaultChecked={r.is_active}
+                    onChange={(e) => {
+                      void rulesApi.update(r.id, { is_active: e.target.checked })
                         .catch(() => toast.error('Could not update rule.'));
-                    }
-                  }}
-                />
-              ) },
-            { key: 'active', header: 'Active', align: 'center',
-              cell: (r) => (
-                <input type="checkbox" defaultChecked={r.is_active}
-                  onChange={(e) => {
-                    void rulesApi.update(r.id, { is_active: e.target.checked })
-                      .catch(() => toast.error('Could not update rule.'));
-                  }} />
-              ) },
-          ]}
-          rows={q.data.rules}
-          rowKey={(r) => r.id}
-        />
+                    }} />
+                ) },
+            ]}
+            rows={q.data.rules}
+            rowKey={(r) => r.id}
+          />
       </Card>
 
-      <Card title="Company holidays">
-        <p className="muted">Holidays configured here count as paid days in payroll.</p>
-        <DataTable
-          columns={[
-            { key: 'date', header: 'Date', cell: (h) => formatDate(h.holiday_date) },
-            { key: 'name', header: 'Holiday', cell: (h) => h.name },
-            { key: 'act', header: '', align: 'right',
-              cell: (h) => (
-                <Button size="sm" variant="ghost" onClick={() => {
-                  void holidayApi.remove(h.id)
-                    .then(() => { toast.info('Holiday removed.'); q.reload(); })
-                    .catch(() => toast.error('Could not remove holiday.'));
-                }}>Remove</Button>
-              ) },
-          ]}
-          rows={q.data.holidays}
-          rowKey={(h) => h.id}
-          empty="No company holidays configured."
-        />
-        <div className="form-grid-2">
-          <TextInput label="Date" type="date" value={holidayDate}
-            onChange={(e) => setHolidayDate(e.target.value)} />
-          <TextInput label="Holiday name" value={holidayName}
-            onChange={(e) => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
-        </div>
-        <Button onClick={() => void addHoliday()}>Add holiday</Button>
+      <Card title="Company holidays" className="settings-card compact-section">
+          <p className="muted small">Holidays count as paid days in payroll.</p>
+          <div className="scroll-y">
+            <DataTable
+              columns={[
+                { key: 'date', header: 'Date', cell: (h) => formatDate(h.holiday_date) },
+                { key: 'name', header: 'Holiday', cell: (h) => h.name },
+                { key: 'act', header: '', align: 'right',
+                  cell: (h) => (
+                    <Button size="sm" variant="ghost" onClick={() => {
+                      void holidayApi.remove(h.id)
+                        .then(() => { toast.info('Holiday removed.'); q.reload(); })
+                        .catch(() => toast.error('Could not remove holiday.'));
+                    }}>Remove</Button>
+                  ) },
+              ]}
+              rows={q.data.holidays}
+              rowKey={(h) => h.id}
+              empty="No company holidays configured."
+            />
+          </div>
+          <div className="add-row">
+            <TextInput label="Date" type="date" value={holidayDate}
+              onChange={(e) => setHolidayDate(e.target.value)} />
+            <TextInput label="Holiday name" value={holidayName}
+              onChange={(e) => setHolidayName(e.target.value)}
+              placeholder="e.g. Diwali"
+              onKeyDown={(e) => { if (e.key === 'Enter') void addHoliday(); }} />
+            <Button variant="primary" onClick={() => void addHoliday()}>Add</Button>
+          </div>
       </Card>
 
-      <Card title="Client companies">
-        <DataTable
-          columns={[
-            { key: 'name', header: 'Client', cell: (c) => c.name },
-            { key: 'status', header: 'Status',
-              cell: (c) => <StatusBadge status={c.is_active ? 'active' : 'inactive'} /> },
-            { key: 'act', header: '', align: 'right',
-              cell: (c) => (
-                <Button size="sm" variant="ghost" onClick={() => {
-                  void clientApi.setActive(c.id, !c.is_active)
-                    .then(() => q.reload())
-                    .catch(() => toast.error('Could not update client.'));
-                }}>{c.is_active ? 'Deactivate' : 'Activate'}</Button>
-              ) },
-          ]}
-          rows={q.data.clients}
-          rowKey={(c) => c.id}
-          empty="No client companies added."
-        />
-        <TextInput label="New client name" value={clientName}
-          onChange={(e) => setClientName(e.target.value)} />
-        <Button onClick={() => void addClient()}>Add client</Button>
-      </Card>
+      <CompaniesPanel />
     </>
   );
 }

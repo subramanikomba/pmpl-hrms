@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
-import { clientApi, expenseApi } from '@/lib/api';
+import { advanceApi, clientApi, expenseApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate } from '@/lib/payroll';
 import { Card } from '@/components/ui/Card';
@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Select, TextArea, TextInput } from '@/components/ui/Field';
+import { Checkbox, Select, TextArea, TextInput } from '@/components/ui/Field';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { ReceiptPicker, ReceiptLink } from './ReceiptControls';
 import type { CompanyExpense } from '@/types/db';
 
 const CATEGORIES = [
@@ -30,19 +31,24 @@ export function MyExpensesPage() {
   const [bill, setBill] = useState('');
   const [clientId, setClientId] = useState('');
   const [description, setDescription] = useState('');
+  const [receipt, setReceipt] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [paidFromAdvance, setPaidFromAdvance] = useState(false);
 
   const q = useQuery(async () => {
-    const [expenses, clients] = await Promise.all([
+    const [expenses, clients, ledger] = await Promise.all([
       expenseApi.listFor(employeeId),
       clientApi.list(true),
+      advanceApi.ledgerFor(employeeId),
     ]);
-    return { expenses, clients };
+    const outstanding = ledger.length > 0
+      ? Number(ledger[ledger.length - 1]?.running_balance ?? 0) : 0;
+    return { expenses, clients, outstanding };
   }, [employeeId]);
 
   if (q.loading) return <Spinner label="Loading expenses…" />;
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
-  const { expenses = [], clients = [] } = q.data ?? {};
+  const { expenses = [], clients = [], outstanding = 0 } = q.data ?? {};
 
   async function submit() {
     const amt = Number(amount);
@@ -55,10 +61,15 @@ export function MyExpensesPage() {
       await expenseApi.submit({
         employee_id: employeeId, expense_date: date, category, amount: amt,
         bill_number: bill || null, description: description || null,
-        client_id: clientId || null,
-      });
-      toast.success('Expense submitted for approval.');
+        client_id: clientId || null, receipt_url: null,
+        paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
+      }, receipt);
+      toast.success(
+        receipt ? 'Expense and receipt submitted for approval.'
+                : 'Expense submitted for approval.',
+      );
       setAmount(''); setBill(''); setDescription(''); setClientId('');
+      setPaidFromAdvance(false); setReceipt(null);
       q.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not submit expense');
@@ -74,6 +85,8 @@ export function MyExpensesPage() {
     { key: 'bill', header: 'Bill no.', cell: (r) => r.bill_number || '—' },
     { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
     { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
+    { key: 'receipt', header: 'Receipt', align: 'right',
+      cell: (r) => <ReceiptLink path={r.receipt_url} /> },
   ];
 
   return (
@@ -102,6 +115,23 @@ export function MyExpensesPage() {
         </Select>
         <TextArea label="Description" value={description}
           onChange={(e) => setDescription(e.target.value)} placeholder="Optional details" />
+
+        {/* Only meaningful when the employee actually holds company money.
+            This is a hint for the admin — it does not decide the accounting. */}
+        {outstanding > 0 && (
+          <div className="advance-hint">
+            <Checkbox
+              label="I paid this from the company advance I am holding"
+              checked={paidFromAdvance}
+              onChange={(e) => setPaidFromAdvance(e.target.checked)}
+            />
+            <p className="field-hint">
+              You currently hold {formatCurrency(outstanding)}. Ticking this tells
+              the approver you used company money; they confirm the final accounting.
+            </p>
+          </div>
+        )}
+        <ReceiptPicker file={receipt} onChange={setReceipt} />
         <Button variant="primary" disabled={saving} onClick={() => void submit()}>
           Submit expense
         </Button>

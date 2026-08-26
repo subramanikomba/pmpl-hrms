@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { Select, TextInput } from '@/components/ui/Field';
+import { ReceiptLink } from './ReceiptControls';
 import type { ApprovalStatus, CompanyExpense, WithEmployee } from '@/types/db';
 
 export function ExpenseApprovalPage() {
@@ -71,8 +72,14 @@ export function ExpenseApprovalPage() {
                 <strong className="amount">{formatCurrency(e.amount)}</strong>
                 <span className="muted">{formatDate(e.expense_date)}</span>
               </p>
+              {e.paid_from_advance && (
+                <p className="advance-flag">
+                  Employee indicated this was paid from a company advance
+                </p>
+              )}
               {e.bill_number && <p className="muted">Bill: {e.bill_number}</p>}
               {e.description && <p>{e.description}</p>}
+              <p className="receipt-row"><ReceiptLink path={e.receipt_url} /></p>
 
               {e.status === 'pending' ? (
                 <div className="row-end gap">
@@ -114,6 +121,7 @@ function ApproveExpenseModal(
   const { employee } = useAuth();
   const toast = useToast();
   const [advanceId, setAdvanceId] = useState('');
+  const [seeded, setSeeded] = useState(false);
   const [amount, setAmount] = useState(String(expense.amount));
   const [saving, setSaving] = useState(false);
 
@@ -136,6 +144,17 @@ function ApproveExpenseModal(
   }, [expense.employee_id]);
 
   const options = q.data ?? [];
+
+  // The employee indicated they paid from the advance: pre-select it so the
+  // admin usually just confirms. Still fully overridable — a hint, not a rule.
+  if (!seeded && expense.paid_from_advance && options.length > 0) {
+    const first = options[0];
+    if (first) {
+      setAdvanceId(first.id);
+      setAmount(String(Math.min(Number(expense.amount), first.remaining)));
+      setSeeded(true);
+    }
+  }
   const selected = options.find((a) => a.id === advanceId);
   const maxAmount = selected
     ? Math.min(Number(expense.amount), selected.remaining)

@@ -17,8 +17,7 @@ import { ExpenseApprovalPage } from '@/features/expenses/ExpenseApprovalPage';
 import { ExpenseReportsPage } from '@/features/expenses/ExpenseReportsPage';
 import { CompanyAdvancePage } from '@/features/advances/CompanyAdvancePage';
 import { SalaryAdvancePage } from '@/features/advances/SalaryAdvancePage';
-import { PayrollPage } from '@/features/payroll/PayrollPage';
-import { PayrollSummaryPage } from '@/features/payroll/PayrollSummaryPage';
+import { PayrollWorkspace } from '@/features/payroll/PayrollWorkspace';
 import { SalarySlipsPage } from '@/features/payroll/SalarySlipsPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 
@@ -48,8 +47,9 @@ export const router = createHashRouter([
       { path: 'admin/expense-reports', element: <RequireAuth adminOnly><ExpenseReportsPage /></RequireAuth> },
       { path: 'admin/company-advance', element: <RequireAuth adminOnly><CompanyAdvancePage /></RequireAuth> },
       { path: 'admin/salary-advance', element: <RequireAuth adminOnly><SalaryAdvancePage /></RequireAuth> },
-      { path: 'admin/payroll', element: <RequireAuth adminOnly><PayrollPage /></RequireAuth> },
-      { path: 'admin/payroll-summary', element: <RequireAuth adminOnly><PayrollSummaryPage /></RequireAuth> },
+      { path: 'admin/payroll', element: <RequireAuth adminOnly><PayrollWorkspace /></RequireAuth> },
+      // Legacy route preserved — opens the Summary tab of the same workspace.
+      { path: 'admin/payroll-summary', element: <RequireAuth adminOnly><PayrollWorkspace /></RequireAuth> },
       { path: 'admin/salary-slips', element: <RequireAuth adminOnly><SalarySlipsPage /></RequireAuth> },
       { path: 'admin/settings', element: <RequireAuth adminOnly><SettingsPage /></RequireAuth> },
 

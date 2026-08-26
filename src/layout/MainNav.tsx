@@ -19,13 +19,25 @@ const ADMIN_PRIMARY: NavItem[] = [
   { to: '/admin/salary-slips', label: 'Salary Slips' },
 ];
 
-const ADMIN_MORE: NavItem[] = [
-  { to: '/admin/expenses', label: 'Expense Approvals' },
-  { to: '/admin/expense-reports', label: 'Expense Reports' },
-  { to: '/admin/company-advance', label: 'Company Advance' },
-  { to: '/admin/salary-advance', label: 'Salary Advance' },
-  { to: '/admin/payroll-summary', label: 'Payroll Summary' },
-  { to: '/admin/settings', label: 'Payroll Settings' },
+/** Grouped so the admin bar stays compact; routes are unchanged. */
+interface NavGroup { heading: string; items: NavItem[] }
+
+const ADMIN_MORE_GROUPS: NavGroup[] = [
+  {
+    heading: 'Expenses',
+    items: [
+      { to: '/admin/expenses', label: 'Expense Approvals' },
+      { to: '/admin/expense-reports', label: 'Expense Reports' },
+      { to: '/admin/company-advance', label: 'Company Advance & Expense Ledger' },
+    ],
+  },
+  {
+    heading: 'Payroll',
+    items: [
+      { to: '/admin/salary-advance', label: 'Salary Advance' },
+      { to: '/admin/settings', label: 'Payroll Settings' },
+    ],
+  },
 ];
 
 export function MainNav() {
@@ -74,15 +86,20 @@ export function MainNav() {
                 <>
                   <div className="nav-more-backdrop" onClick={() => setMoreOpen(false)} />
                   <div className="nav-more-menu">
-                    {ADMIN_MORE.map((item) => (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        className={({ isActive }) => `nav-more-item ${isActive ? 'is-active' : ''}`}
-                        onClick={close}
-                      >
-                        {item.label}
-                      </NavLink>
+                    {ADMIN_MORE_GROUPS.map((group) => (
+                      <div key={group.heading} className="nav-more-group">
+                        <p className="nav-more-heading">{group.heading}</p>
+                        {group.items.map((item) => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            className={({ isActive }) => `nav-more-item ${isActive ? 'is-active' : ''}`}
+                            onClick={close}
+                          >
+                            {item.label}
+                          </NavLink>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 </>

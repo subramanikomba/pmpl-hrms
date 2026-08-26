@@ -98,6 +98,7 @@ a { color: var(--brand); }
   box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
 .card-head { display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.card-head .card-title { flex: 1 1 auto; }
 .card-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .5px; color: var(--muted); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -324,3 +325,182 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
   .nav-more-menu { position: relative; z-index: 42; width: 100%;
     border-radius: 0; box-shadow: none; }
 }
+
+/* ── Receipt controls ───────────────────────────────────────── */
+.receipt-chosen { display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--field-line); border-radius: 8px;
+  background: var(--field-bg); }
+.receipt-name { flex: 1; font-size: 13px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.receipt-row { margin-top: 8px; }
+.row-future td { opacity: .55; }
+
+/* ── Dashboard pending alert ────────────────────────────────── */
+.alert-bell { display: inline-flex; align-items: center; gap: 4px;
+  background: var(--danger); color: #fff; border-radius: 20px;
+  padding: 1px 9px 1px 7px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0; text-transform: none; }
+.alert-count { font-variant-numeric: tabular-nums; }
+.count-pending { color: var(--danger); }
+
+/* ── Compact reference tables (holidays, clients) ───────────── */
+.compact-section .data-table th { padding: 6px 10px; font-size: 11px; }
+.compact-section .data-table td { padding: 5px 10px; font-size: 12.5px; }
+.compact-section .data-table .btn-sm { padding: 3px 9px; font-size: 11.5px; }
+/* .table-scroll already owns horizontal overflow. Adding overflow-y to the
+   same box makes the browser render BOTH scrollbars. Vertical scrolling gets
+   its own wrapper so each axis has exactly one scroll container, and the
+   height is viewport-relative so a short window doesn't force a second one. */
+.compact-section .table-scroll { overflow-x: auto; overflow-y: visible; }
+/* The ONLY vertical scroll container for a long reference list. The inner
+   .table-scroll handles horizontal overflow only, so the two never both
+   produce a vertical scrollbar. */
+.scroll-y { max-height: min(340px, 45vh); overflow-y: auto;
+  overscroll-behavior: contain; border: 1px solid var(--line);
+  border-radius: 8px; }
+.scroll-y .data-table th { position: sticky; top: 0; z-index: 1; }
+.scroll-y > .table-scroll { overflow-x: auto; }
+
+/* ── Grouped "More" menu ────────────────────────────────────── */
+.nav-more-group + .nav-more-group { border-top: 1px solid var(--line); }
+.nav-more-heading { padding: 9px 16px 4px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+
+/* ── Proportionate widths for narrow tables ─────────────────────
+   A table with 2–4 short columns should not stretch the full page.
+   `.card.narrow` caps the card; `.table-compact` keeps columns snug. */
+.card.narrow { max-width: 620px; }
+.card.mid    { max-width: 860px; }
+.table-compact { width: auto; min-width: 100%; }
+.table-compact th, .table-compact td { white-space: nowrap; }
+.table-compact td.col-grow, .table-compact th.col-grow { white-space: normal; width: 99%; }
+
+/* Two-column settings so short forms sit side by side instead of stacking */
+.settings-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 16px;
+  align-items: start; }
+.settings-grid > * { margin-bottom: 0; }
+@media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
+
+/* Inline add-row: date + name + button on one line */
+.add-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 10px;
+  align-items: end; margin-top: 12px; }
+.add-row .field { margin-bottom: 0; }
+@media (max-width: 620px) { .add-row { grid-template-columns: 1fr; } }
+.add-row-2 { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end;
+  margin-top: 12px; }
+.add-row-2 .field { margin-bottom: 0; }
+
+/* Scrollable list area keeps long holiday lists from pushing the page down */
+
+/* ── Tabs ───────────────────────────────────────────────────── */
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--line);
+  margin-bottom: 18px; }
+.tab { background: none; border: none; font-family: inherit; cursor: pointer;
+  padding: 10px 18px; font-size: 14px; font-weight: 500; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab:hover { color: var(--ink); }
+.tab.is-active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+
+/* ── Payroll tabs ───────────────────────────────────────────── */
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--line);
+  margin-bottom: 18px; }
+.tab { padding: 9px 18px; font-size: 13.5px; font-weight: 500; color: var(--muted);
+  text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab:hover { color: var(--ink); }
+.tab.is-active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+
+/* ── Proportionate widths for narrow tables/forms ───────────── */
+/* A small amount of information should not span the whole screen. */
+/* Reference width for the settings cards — the original topmost-card width. */
+.narrow-section { max-width: 680px; }
+/* Settings cards sit at the reference width rather than stretching. */
+/* All settings cards share the original width of the topmost card (680px).
+   The reference width is unchanged — the other cards were narrowed to match,
+   not the topmost card widened. */
+/* Settings cards span the full content width for a consistent, balanced page. */
+.settings-card { max-width: none; }
+.settle-grid { max-width: 760px; }
+.split-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  align-items: start; }
+@media (max-width: 900px) { .split-2 { grid-template-columns: 1fr; } }
+
+/* ── Companies & locations panel ────────────────────────────── */
+.company-form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  align-items: start; margin-top: 12px; }
+.company-form-locs .field-label { margin-bottom: 5px; }
+.loc-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.loc-row .input { flex: 1; }
+.company-form-actions { display: flex; align-items: center; gap: 12px;
+  margin: 6px 0 20px; }
+
+.company-list { display: flex; flex-direction: column; gap: 10px; }
+.company-card { border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-2); padding: 12px 14px; }
+.company-card.is-inactive { opacity: .62; }
+.company-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.company-name { font-weight: 600; font-size: 14.5px; }
+.company-actions { margin-left: auto; display: flex; gap: 6px; }
+.rename-row { display: flex; gap: 8px; align-items: center; width: 100%; }
+.rename-row .input { max-width: 280px; }
+
+.loc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.loc-chip { display: inline-flex; align-items: center; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.loc-chip-name { background: none; border: none; padding: 4px 4px 4px 11px;
+  font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
+.loc-chip-x { background: none; border: none; padding: 4px 9px 4px 4px;
+  color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; }
+.loc-chip-x:hover { color: var(--danger); }
+.loc-edit { display: inline-flex; gap: 6px; align-items: center; }
+.loc-edit .input { max-width: 200px; padding: 5px 9px; font-size: 12.5px; }
+.loc-add { display: flex; gap: 8px; align-items: center; }
+.loc-add .input { flex: 1; max-width: 420px; }
+
+@media (max-width: 900px) { .company-form { grid-template-columns: 1fr; } }
+
+/* ── Password reset block in the edit-employee modal ────────── */
+.pw-section { margin: 4px 0; }
+.pw-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 6px; }
+.pw-title { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.pw-row { max-width: 320px; }
+
+/* ── Pending-attention heading ──────────────────────────────── */
+/* .card-title is flex:1 inside .card-head, so it stretches the full header
+   width. Shrink it to its content and keep the bell hard against the text. */
+.card-head .card-title:has(.attention-title) { flex: 0 0 auto; }
+.attention-title { display: inline-flex; align-items: center; gap: 10px;
+  justify-content: flex-start; }
+
+/* ── Read-only profile value (e.g. login email) ─────────────── */
+.readonly-value { padding: 9px 12px; border: 1px dashed var(--field-line);
+  border-radius: 8px; background: var(--bg); color: var(--ink-2);
+  font-size: 14px; word-break: break-all; }
+
+/* ── Payroll table: fit the desktop content width ────────────────
+ * The table has 14 columns; fixed 92px inputs plus generous padding pushed
+ * its natural width past the content area, forcing a horizontal scrollbar on
+ * ordinary desktop widths. Tighten the inputs and padding so it fits, and
+ * right-align the numeric columns so the figures stay easy to compare.
+ * .table-scroll still provides horizontal scrolling on genuinely narrow
+ * screens — the fallback is retained, not removed.
+ */
+.payroll-table { table-layout: auto; font-size: 12px; }
+.payroll-table th,
+.payroll-table td { padding: 7px 6px; }
+.payroll-table th:first-child,
+.payroll-table td:first-child { padding-left: 12px; }
+.payroll-table th:last-child,
+.payroll-table td:last-child { padding-right: 12px; }
+/* numeric columns need no more room than their widest value */
+.payroll-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* compact editable cells — still comfortably clickable */
+.payroll-table .cell-input { width: 62px; padding: 4px 6px; font-size: 12px; }
+.payroll-table .emp-name { font-size: 11px; }
+/* the employee column is the only one that may wrap, so long names never
+   force the whole table wider */
+.payroll-table td:first-child { white-space: normal; min-width: 132px; }
+
+/* Same principle for other wide data tables: tighter gutters before
+   resorting to horizontal scrolling. */
+.data-table th, .data-table td { padding: 8px 10px; }

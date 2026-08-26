@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
-  isoDate, professionalTaxFor, round2, structureForMonth,
+  isoDate, professionalTaxFor, round2, structureForMonth, employeeMayMark,
 } from './payroll';
 
 const STRUCT = {
@@ -191,5 +191,60 @@ describe('structureForMonth', () => {
 
   it('returns null when no revision applies yet', () => {
     expect(structureForMonth(structures, new Date(2025, 0, 1))).toBeNull();
+  });
+
+  // Regression: a revision dated mid-month must apply to that same month.
+  // Comparing against the month START silently excluded it, so payroll for
+  // that month found no structure and could not be processed.
+  it('applies a revision dated mid-month to that same month', () => {
+    const mid = [{ effective_from: '2026-08-25', basic: 5000 }];
+    expect(structureForMonth(mid, new Date(2026, 7, 1))?.basic).toBe(5000);
+  });
+
+  it('applies a revision dated on the last day of the month', () => {
+    const last = [{ effective_from: '2026-08-31', basic: 7000 }];
+    expect(structureForMonth(last, new Date(2026, 7, 1))?.basic).toBe(7000);
+  });
+
+  it('still excludes a revision that starts after the month ends', () => {
+    const next = [{ effective_from: '2026-09-01', basic: 9000 }];
+    expect(structureForMonth(next, new Date(2026, 7, 1))).toBeNull();
+  });
+
+  it('prefers the latest revision when several apply within a month', () => {
+    const many = [
+      { effective_from: '2026-08-01', basic: 100 },
+      { effective_from: '2026-08-20', basic: 200 },
+    ];
+    expect(structureForMonth(many, new Date(2026, 7, 1))?.basic).toBe(200);
+  });
+});
+
+describe('employeeMayMark', () => {
+  // "today" fixed at 15 Aug 2026 for deterministic assertions
+  const now = new Date(2026, 7, 15);
+
+  it('allows today', () => {
+    expect(employeeMayMark(new Date(2026, 7, 15), 10, now)).toBe(true);
+  });
+  it('allows past dates in the current month', () => {
+    expect(employeeMayMark(new Date(2026, 7, 1), 10, now)).toBe(true);
+    expect(employeeMayMark(new Date(2026, 7, 14), 10, now)).toBe(true);
+  });
+  it('blocks future dates', () => {
+    expect(employeeMayMark(new Date(2026, 7, 16), 10, now)).toBe(false);
+    expect(employeeMayMark(new Date(2026, 8, 1), 10, now)).toBe(false);
+  });
+  it('blocks the previous month once the payment day has arrived', () => {
+    // 15th >= payment day 10 -> July is closed
+    expect(employeeMayMark(new Date(2026, 6, 20), 10, now)).toBe(false);
+  });
+  it('allows the previous month before the payment day', () => {
+    const early = new Date(2026, 7, 5); // 5th < payment day 10
+    expect(employeeMayMark(new Date(2026, 6, 20), 10, early)).toBe(true);
+  });
+  it('blocks months older than the previous month', () => {
+    const early = new Date(2026, 7, 5);
+    expect(employeeMayMark(new Date(2026, 5, 20), 10, early)).toBe(false);
   });
 });

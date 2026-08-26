@@ -12,8 +12,10 @@ export interface Employee {
   employee_code: string;
   first_name: string;
   last_name: string;
-  username: string;
-  contact_email: string | null;
+  /** Required — this is the Supabase Auth login identity. */
+  contact_email: string;
+  /** Contact information only. Never used for authentication. */
+  phone: string | null;
   designation: string | null;
   pan: string | null;
   is_admin: boolean;
@@ -72,9 +74,13 @@ export interface CompanyExpense {
   bill_number: string | null;
   description: string | null;
   client_id: string | null;
+  /** Storage object path in the private expense-receipts bucket. */
+  receipt_url: string | null;
   status: ApprovalStatus;
   accounted_advance_id: string | null;
   accounted_amount: number | null;
+  /** Employee hint only — never decides the accounting. */
+  paid_from_advance: boolean;
   reviewed_by: string | null;
   review_note: string | null;
   reviewed_at: string | null;
@@ -157,6 +163,16 @@ export interface ClientCompany {
   name: string;
   is_active: boolean;
 }
+
+/** A site/plant belonging to a client company. Descriptive data only. */
+export interface ClientLocation {
+  id: string;
+  client_id: string;
+  name: string;
+  is_active: boolean;
+}
+
+export type ClientWithLocations = ClientCompany & { locations: ClientLocation[] };
 
 export interface LedgerRow {
   employee_id: string;

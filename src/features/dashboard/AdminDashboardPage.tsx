@@ -40,6 +40,7 @@ export function AdminDashboardPage() {
   if (!q.data) return null;
 
   const d = q.data;
+  const pendingTotal = d.pendingLeave.length + d.pendingExp.length;
   const netPayable = d.payroll.reduce((s, p) => s + Number(p.net_salary), 0);
   const processed = d.payroll.filter((p) => p.status !== 'draft').length;
 
@@ -59,15 +60,32 @@ export function AdminDashboardPage() {
       </div>
 
       <div className="two-col">
-        <Card title="Needs your attention">
+        <Card
+          title={
+            <span className="attention-title">
+              Needs your attention
+              {pendingTotal > 0 && (
+                <span className="alert-bell" role="status"
+                  aria-label={`${pendingTotal} item${pendingTotal === 1 ? '' : 's'} pending`}>
+                  <span aria-hidden="true">🔔</span>
+                  <span className="alert-count">{pendingTotal}</span>
+                </span>
+              )}
+            </span>
+          }
+        >
           <ul className="plain-list">
             <li>
               <Link to="/admin/leave">Leave requests awaiting approval</Link>
-              <strong>{d.pendingLeave.length}</strong>
+              <strong className={d.pendingLeave.length > 0 ? 'count-pending' : undefined}>
+                {d.pendingLeave.length}
+              </strong>
             </li>
             <li>
               <Link to="/admin/expenses">Expense claims awaiting approval</Link>
-              <strong>{d.pendingExp.length}</strong>
+              <strong className={d.pendingExp.length > 0 ? 'count-pending' : undefined}>
+                {d.pendingExp.length}
+              </strong>
             </li>
           </ul>
         </Card>
@@ -79,7 +97,7 @@ export function AdminDashboardPage() {
               <strong>{formatCurrency(d.outstandingAdvance)}</strong>
             </li>
             <li>
-              <Link to="/admin/company-advance">Open advance ledger</Link>
+              <Link to="/admin/company-advance">Record company advance</Link>
             </li>
           </ul>
         </Card>

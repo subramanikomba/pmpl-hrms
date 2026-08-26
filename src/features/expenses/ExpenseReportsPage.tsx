@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Select, TextInput } from '@/components/ui/Field';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { ReceiptLink } from './ReceiptControls';
 import type { CompanyExpense, WithEmployee } from '@/types/db';
 
 const CATEGORIES = ['Travel','Food','Local Conveyance','Parts/Components','Accommodation','Other'];
@@ -60,6 +61,8 @@ export function ExpenseReportsPage() {
     { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
     { key: 'acct', header: 'Accounted', align: 'right',
       cell: (r) => r.accounted_advance_id ? formatCurrency(r.accounted_amount ?? 0) : '—' },
+    { key: 'receipt', header: 'Receipt', align: 'right',
+      cell: (r) => <ReceiptLink path={r.receipt_url} /> },
   ];
 
   return (
@@ -130,7 +133,7 @@ export function ExpenseReportsPage() {
                   <tr>
                     <td colSpan={3} className="fw-bold">Total</td>
                     <td className="fw-bold" style={{ textAlign: 'right' }}>{formatCurrency(total)}</td>
-                    <td colSpan={4} />
+                    <td colSpan={5} />
                   </tr>
                 }
               />

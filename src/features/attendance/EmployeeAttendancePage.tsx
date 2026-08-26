@@ -3,8 +3,9 @@ import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
-  attendanceApi, holidayApi, leaveApi, advanceApi, expenseApi,
+  attendanceApi, holidayApi, leaveApi, advanceApi, expenseApi, settingsApi,
 } from '@/lib/api';
+import { AttendanceMonthTable } from './AttendanceMonthTable';
 import { computePaidDays, isoDate, monthStart } from '@/lib/payroll';
 import { formatCurrency, formatDate, formatMonth } from '@/lib/format';
 import { Card, StatCard } from '@/components/ui/Card';
@@ -28,14 +29,15 @@ export function EmployeeAttendancePage() {
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [records, holidays, leaves, ledger, expenses] = await Promise.all([
+    const [records, holidays, leaves, ledger, expenses, settings] = await Promise.all([
       attendanceApi.listForMonth(month, employeeId),
       holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
       leaveApi.listFor(employeeId),
       advanceApi.ledgerFor(employeeId),
       expenseApi.listFor(employeeId),
+      settingsApi.get(),
     ]);
-    return { records, holidays, leaves, ledger, expenses };
+    return { records, holidays, leaves, ledger, expenses, settings };
   }, [employeeId]);
 
   if (!employee) return null;
@@ -43,6 +45,7 @@ export function EmployeeAttendancePage() {
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
 
   const { records = [], holidays = [], leaves = [], ledger = [], expenses = [] } = q.data ?? {};
+  const paymentDay = q.data?.settings.salary_payment_day ?? 10;
   const holidayDates = new Set(holidays.map((h) => h.holiday_date));
   const breakdown = computePaidDays({ month, records, holidayDates, upTo: today });
 
@@ -180,19 +183,19 @@ export function EmployeeAttendancePage() {
         </Card>
       )}
 
-      <Card title="Recent attendance">
-        {records.length === 0 ? (
-          <p className="muted">No attendance recorded this month yet.</p>
-        ) : (
-          <ul className="record-list">
-            {records.slice(0, 10).map((r) => (
-              <li key={r.id}>
-                <span>{formatDate(r.date)}</span>
-                <StatusBadge status={r.status} />
-              </li>
-            ))}
-          </ul>
-        )}
+      <Card className="mid" title={`Attendance — ${formatMonth(month)}`}>
+        <p className="muted small" style={{ marginBottom: 10 }}>
+          You can mark or correct Present/Absent for past dates in this month.
+          Sundays, company holidays and approved leave are set automatically.
+        </p>
+        <AttendanceMonthTable
+          employeeId={employeeId}
+          month={month}
+          records={records}
+          holidayDates={holidayDates}
+          paymentDay={paymentDay}
+          onChanged={q.reload}
+        />
       </Card>
     </>
   );

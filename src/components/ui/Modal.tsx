@@ -3,13 +3,25 @@ import { createPortal } from 'react-dom';
 
 /** Accessible modal: Escape closes, background scroll locked, focus trapped to dialog. */
 export function Modal(
-  { open, title, onClose, children, size = 'md' }:
+  { open, title, onClose, children, size = 'md',
+    dismissOnBackdrop = true, confirmClose = false,
+    confirmMessage = 'Discard your unsaved changes?' }:
   { open: boolean; title: string; onClose: () => void;
-    children: ReactNode; size?: 'sm' | 'md' | 'lg' },
+    children: ReactNode; size?: 'sm' | 'md' | 'lg';
+    /** Data-entry modals set this false so a stray outside click cannot
+     *  discard what the user has typed. */
+    dismissOnBackdrop?: boolean;
+    /** Ask before closing when the form holds unsaved input. */
+    confirmClose?: boolean;
+    confirmMessage?: string },
 ) {
+  const requestClose = () => {
+    if (confirmClose && !window.confirm(confirmMessage)) return;
+    onClose();
+  };
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -17,12 +29,15 @@ export function Modal(
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose]);
+  }, [open, onClose, confirmClose, confirmMessage]);
 
   if (!open) return null;
 
   return createPortal(
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      onClick={dismissOnBackdrop ? requestClose : undefined}
+    >
       <div
         className={`modal modal-${size}`}
         role="dialog"
@@ -32,7 +47,7 @@ export function Modal(
       >
         <header className="modal-head">
           <h2>{title}</h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+          <button className="modal-close" onClick={requestClose} aria-label="Close">×</button>
         </header>
         <div className="modal-body">{children}</div>
       </div>

@@ -174,9 +174,38 @@ export function structureForMonth<T extends { effective_from: string }>(
   structures: readonly T[],
   month: Date,
 ): T | null {
-  const target = isoDate(monthStart(month));
+  // A revision applies to a month if it took effect on or before the END of
+  // that month. Comparing against the START would ignore a revision dated
+  // mid-month, leaving that month with no structure at all and blocking
+  // payroll entirely.
+  const monthEnd = isoDate(new Date(month.getFullYear(), month.getMonth() + 1, 0));
   const eligible = structures
-    .filter((s) => s.effective_from <= target)
+    .filter((s) => s.effective_from <= monthEnd)
     .sort((a, b) => b.effective_from.localeCompare(a.effective_from));
   return eligible[0] ?? null;
+}
+
+/**
+ * Client-side twin of the RLS function public.employee_may_mark(date).
+ * An employee may self-mark present/absent for a date that is not in the
+ * future, within the current month, or within the previous month up to the
+ * day before the configured payment date. Authoritative check is in Postgres.
+ */
+export function employeeMayMark(
+  d: Date,
+  paymentDay = 10,
+  now: Date = new Date(),
+): boolean {
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (day > today) return false;
+
+  const curMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  if (day >= curMonth) return true;
+
+  const prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  if (day >= prevMonth && day < curMonth) {
+    return today.getDate() < paymentDay;
+  }
+  return false;
 }
