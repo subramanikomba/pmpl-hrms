@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
+  computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
   isoDate, professionalTaxFor, round2, structureForMonth, employeeMayMark,
 } from './payroll';
 
@@ -80,6 +80,21 @@ describe('computePaidDays', () => {
       upTo: new Date(2026, 7, 1),
     });
     expect(b.absent).toBe(1);
+  });
+
+  it('honours a configured working-day calendar', () => {
+    // Mon–Fri working: Saturdays become paid weekly offs too.
+    const b = computePaidDays({
+      month, records: [], holidayDates: new Set(),
+      workingDays: [1, 2, 3, 4, 5],
+    });
+    // Aug 2026 has 5 Sundays and 5 Saturdays
+    expect(b.weeklyOffs).toBe(10);
+  });
+
+  it('defaults to Mon–Sat when no calendar is given', () => {
+    const b = computePaidDays({ month, records: [], holidayDates: new Set() });
+    expect(b.weeklyOffs).toBe(5); // Sundays only
   });
 
   it('never counts a Sunday as absent even without a record', () => {
@@ -246,5 +261,75 @@ describe('employeeMayMark', () => {
   it('blocks months older than the previous month', () => {
     const early = new Date(2026, 7, 5);
     expect(employeeMayMark(new Date(2026, 5, 20), 10, early)).toBe(false);
+  });
+});
+
+describe('computeAllowanceAmount', () => {
+  // Spec §8: 2.5% per night, 1.5% per day, 1% attendance bonus, etc.
+  it('applies the rate to Basic per unit of quantity', () => {
+    expect(computeAllowanceAmount(20000, 2.5, 2)).toBe(1000);   // 2 nights
+    expect(computeAllowanceAmount(20000, 1.5, 3)).toBe(900);    // 3 day visits
+    expect(computeAllowanceAmount(20000, 1, 1)).toBe(200);      // attendance bonus
+  });
+  it('is zero when the quantity is zero or invalid', () => {
+    expect(computeAllowanceAmount(20000, 2.5, 0)).toBe(0);
+    expect(computeAllowanceAmount(20000, 2.5, -1)).toBe(0);
+    expect(computeAllowanceAmount(20000, 2.5, Number.NaN)).toBe(0);
+  });
+  it('rounds to two decimals', () => {
+    expect(computeAllowanceAmount(5000, 1.5, 1)).toBe(75);
+    expect(computeAllowanceAmount(3333, 2.5, 1)).toBe(83.33);
+  });
+});
+
+describe('computePayroll with configured allowances', () => {
+  it('adds the allowance total to gross', () => {
+    const r = computePayroll({
+      structure: STRUCT, paidDays: 31, daysInMonth: 31,
+      performanceBonus: 0, annualBonus: 0, allowancesTotal: 1500,
+      professionalTax: 200, salaryAdvanceRecovered: 0, otherDeductions: 0,
+    });
+    expect(r.gross_salary).toBe(37500);   // 36,000 + 1,500
+    expect(r.net_salary).toBe(37300);
+  });
+  it('does NOT prorate allowances (they are per-event, not monthly)', () => {
+    const full = computePayroll({
+      structure: STRUCT, paidDays: 31, daysInMonth: 31,
+      performanceBonus: 0, annualBonus: 0, allowancesTotal: 1000,
+      professionalTax: 0, salaryAdvanceRecovered: 0, otherDeductions: 0,
+    });
+    const half = computePayroll({
+      structure: STRUCT, paidDays: 15.5, daysInMonth: 31,
+      performanceBonus: 0, annualBonus: 0, allowancesTotal: 1000,
+      professionalTax: 0, salaryAdvanceRecovered: 0, otherDeductions: 0,
+    });
+    // fixed components halve; the allowance does not
+    expect(full.gross_salary - half.gross_salary).toBe(18000);
+  });
+  it('behaves as before when no allowances are entered', () => {
+    const r = computePayroll({
+      structure: STRUCT, paidDays: 31, daysInMonth: 31,
+      performanceBonus: 0, annualBonus: 0,
+      professionalTax: 200, salaryAdvanceRecovered: 0, otherDeductions: 0,
+    });
+    expect(r.gross_salary).toBe(36000);
+  });
+});
+
+describe('computeAllowanceAmount', () => {
+  it('is rate% of basic, multiplied by the quantity', () => {
+    // 2 overnight visits at 2.5% of a 31,000 basic
+    expect(computeAllowanceAmount(31000, 2.5, 2)).toBe(1550);
+  });
+  it('returns zero for a zero or missing quantity', () => {
+    expect(computeAllowanceAmount(31000, 2.5, 0)).toBe(0);
+    expect(computeAllowanceAmount(31000, 2.5, Number.NaN)).toBe(0);
+  });
+  it('never returns a negative amount', () => {
+    expect(computeAllowanceAmount(31000, 2.5, -3)).toBe(0);
+  });
+  it('scales with the prorated basic, not the full salary', () => {
+    // half a month worked -> half the allowance base
+    expect(computeAllowanceAmount(15500, 2.5, 2)).toBe(775);
   });
 });

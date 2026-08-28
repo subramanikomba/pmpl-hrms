@@ -3,11 +3,16 @@ import { amountInWords, maskPan, monthInputValue, parseMonthInput } from './form
 
 describe('amountInWords', () => {
   it('handles zero', () => {
-    expect(amountInWords(0)).toBe('Zero Rupees Only');
+    expect(amountInWords(0)).toBe('Rupees Zero Only');
+  });
+  it('leads with "Rupees" and ends with "Only"', () => {
+    expect(amountInWords(5484.68)).toBe(
+      'Rupees Five Thousand Four Hundred Eighty Four and Sixty Eight Paise Only',
+    );
   });
   it('uses the Indian numbering system', () => {
-    expect(amountInWords(100)).toBe('One Hundred Rupees Only');
-    expect(amountInWords(1500)).toBe('One Thousand Five Hundred Rupees Only');
+    expect(amountInWords(100)).toBe('Rupees One Hundred Only');
+    expect(amountInWords(1500)).toBe('Rupees One Thousand Five Hundred Only');
     expect(amountInWords(125000)).toContain('Lakh');
     expect(amountInWords(12500000)).toContain('Crore');
   });

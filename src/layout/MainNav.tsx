@@ -8,6 +8,7 @@ const EMPLOYEE_NAV: NavItem[] = [
   { to: '/attendance', label: 'Attendance' },
   { to: '/leave', label: 'Leave' },
   { to: '/expenses', label: 'Expenses' },
+  { to: '/salary-slips', label: 'Salary Slips' },
 ];
 
 const ADMIN_PRIMARY: NavItem[] = [

@@ -117,6 +117,10 @@ export interface PayrollRecord {
   conveyance_other: number;
   performance_bonus: number;
   annual_bonus: number;
+  /** Total of the configured allowance rules applied this month. */
+  allowances_total: number;
+  /** Per-rule breakdown, so a saved payroll can be reopened and reviewed. */
+  allowances_detail: AllowanceLine[] | null;
   gross_salary: number;
   professional_tax: number;
   salary_advance_recovered: number;
@@ -133,6 +137,15 @@ export interface PayrollRecord {
   reopened_reason: string | null;
 }
 
+/** One configured allowance rule as applied to a specific payroll month. */
+export interface AllowanceLine {
+  rule_key: string;
+  description: string;
+  rate_percent: number;
+  quantity: number;
+  amount: number;
+}
+
 export interface CompanySettings {
   id: string;
   company_name: string;
@@ -140,6 +153,8 @@ export interface CompanySettings {
   cin: string | null;
   gst_number: string | null;
   salary_payment_day: number;
+  /** Working days as day-of-week numbers (0=Sun..6=Sat). Others are weekly offs. */
+  working_days: number[];
   pt_monthly: number;
   pt_february: number;
 }

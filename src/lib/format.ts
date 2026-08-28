@@ -65,12 +65,15 @@ function convert(num: number): string {
     + (num % 10000000 ? ' ' + convert(num % 10000000) : '');
 }
 
-/** Indian numbering system, for salary slips. */
+/**
+ * Indian numbering system, for salary slips.
+ * Format: "Rupees <words> and <paise> Paise Only".
+ */
 export function amountInWords(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return 'Zero Rupees Only';
+  if (!Number.isFinite(n) || n === 0) return 'Rupees Zero Only';
   const int = Math.floor(Math.abs(n));
   const paise = Math.round((Math.abs(n) - int) * 100);
-  let out = convert(int).replace(/\s+/g, ' ').trim() + ' Rupees';
+  let out = 'Rupees ' + convert(int).replace(/\s+/g, ' ').trim();
   if (paise > 0) out += ' and ' + convert(paise).trim() + ' Paise';
   return out + ' Only';
 }

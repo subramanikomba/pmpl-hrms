@@ -47,7 +47,8 @@ export function EmployeeAttendancePage() {
   const { records = [], holidays = [], leaves = [], ledger = [], expenses = [] } = q.data ?? {};
   const paymentDay = q.data?.settings.salary_payment_day ?? 10;
   const holidayDates = new Set(holidays.map((h) => h.holiday_date));
-  const breakdown = computePaidDays({ month, records, holidayDates, upTo: today });
+  const breakdown = computePaidDays({ month, records, holidayDates, upTo: today,
+    workingDays: q.data?.settings.working_days });
 
   const todayStr = isoDate(today);
   const todayRecord = records.find((r) => r.date === todayStr);

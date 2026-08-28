@@ -19,6 +19,7 @@ import { CompanyAdvancePage } from '@/features/advances/CompanyAdvancePage';
 import { SalaryAdvancePage } from '@/features/advances/SalaryAdvancePage';
 import { PayrollWorkspace } from '@/features/payroll/PayrollWorkspace';
 import { SalarySlipsPage } from '@/features/payroll/SalarySlipsPage';
+import { MySalarySlipsPage } from '@/features/payroll/MySalarySlipsPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 
 /**
@@ -37,6 +38,7 @@ export const router = createHashRouter([
       { path: 'attendance', element: <EmployeeAttendancePage /> },
       { path: 'leave', element: <LeaveHistoryPage /> },
       { path: 'expenses', element: <MyExpensesPage /> },
+      { path: 'salary-slips', element: <MySalarySlipsPage /> },
 
       // Admin
       { path: 'admin', element: <RequireAuth adminOnly><AdminDashboardPage /></RequireAuth> },

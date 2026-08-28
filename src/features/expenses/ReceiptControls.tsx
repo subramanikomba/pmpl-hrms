@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { expenseApi, RECEIPT_MAX_BYTES, RECEIPT_TYPES } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/ToastProvider';
 
 const ACCEPT = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
@@ -84,15 +85,18 @@ export function ReceiptPicker(
 export function ReceiptLink({ path }: { path: string | null }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
 
   if (!path) return <span className="muted">No receipt attached</span>;
 
+  const isPdf = path.toLowerCase().endsWith('.pdf');
+
+  /** Fetch a signed URL and show it in-app rather than in a new tab. */
   async function open() {
     if (!path) return;
     setBusy(true);
     try {
-      const url = await expenseApi.receiptUrl(path);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      setUrl(await expenseApi.receiptUrl(path));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not open receipt');
     } finally {
@@ -101,8 +105,29 @@ export function ReceiptLink({ path }: { path: string | null }) {
   }
 
   return (
-    <Button size="sm" variant="secondary" disabled={busy} onClick={() => void open()}>
-      {busy ? 'Opening…' : 'View receipt'}
-    </Button>
+    <>
+      <Button size="sm" variant="secondary" disabled={busy} onClick={() => void open()}>
+        {busy ? 'Opening…' : 'View receipt'}
+      </Button>
+
+      {url && (
+        <Modal open size="lg" title="Receipt" onClose={() => setUrl(null)}>
+          {isPdf ? (
+            // Signed URLs are same-origin-safe to frame; the browser's own
+            // PDF viewer renders inside the modal.
+            <div className="doc-viewer">
+              <iframe src={url} title="Receipt" className="doc-frame" />
+            </div>
+          ) : (
+            <div className="receipt-viewer">
+              <img src={url} alt="Expense receipt" className="receipt-image" />
+            </div>
+          )}
+          <div className="row-end gap">
+            <Button variant="primary" onClick={() => setUrl(null)}>Close</Button>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }

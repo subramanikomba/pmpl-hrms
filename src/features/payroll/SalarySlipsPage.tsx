@@ -4,7 +4,8 @@ import { useToast } from '@/components/ui/ToastProvider';
 import { employeesApi, payrollApi, settingsApi } from '@/lib/api';
 import { monthStart } from '@/lib/payroll';
 import { formatCurrency, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
-import { generateDocx, generatePdf } from './slipDocument';
+import { generateDocx, generatePdf, generatePdfPreview } from './slipDocument';
+import { PdfViewerModal } from './PdfViewerModal';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -17,6 +18,7 @@ export function SalarySlipsPage() {
   const [employeeId, setEmployeeId] = useState('');
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [busy, setBusy] = useState(false);
+  const [viewing, setViewing] = useState(false);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
   const refs = useQuery(async () => {
@@ -30,6 +32,16 @@ export function SalarySlipsPage() {
     () => employeeId ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
     [employeeId, monthValue],
   );
+
+  // Everything the generator needs, or null when the selection is incomplete.
+  const slipData = (() => {
+    const employee = refs.data?.employees.find((e) => e.id === employeeId);
+    const settings = refs.data?.settings;
+    const payroll = preview.data;
+    return employee && settings && payroll
+      ? { employee, payroll, settings, month }
+      : null;
+  })();
 
   async function download(kind: 'pdf' | 'docx') {
     const employee = refs.data?.employees.find((e) => e.id === employeeId);
@@ -94,11 +106,22 @@ export function SalarySlipsPage() {
 
         <div className="row-end gap">
           <Button variant="secondary" disabled={busy || !preview.data}
+            onClick={() => setViewing(true)}>View</Button>
+          <Button variant="secondary" disabled={busy || !preview.data}
             onClick={() => void download('docx')}>Download Word</Button>
           <Button variant="primary" disabled={busy || !preview.data}
             onClick={() => void download('pdf')}>Download PDF</Button>
         </div>
       </Card>
+
+      {viewing && slipData && (
+        <PdfViewerModal
+          title={`Salary slip — ${formatMonth(month)}`}
+          build={() => generatePdfPreview(slipData)}
+          onClose={() => setViewing(false)}
+          onDownload={() => void download('pdf')}
+        />
+      )}
 
       <p className="muted small">
         Salary slips are generated in your browser and are not stored on the server.

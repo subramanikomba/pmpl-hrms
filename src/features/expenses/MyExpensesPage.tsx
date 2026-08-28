@@ -34,6 +34,8 @@ export function MyExpensesPage() {
   const [receipt, setReceipt] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [paidFromAdvance, setPaidFromAdvance] = useState(false);
+  // id of the pending claim being edited; null = creating a new one
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const q = useQuery(async () => {
     const [expenses, clients, ledger] = await Promise.all([
@@ -50,6 +52,27 @@ export function MyExpensesPage() {
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
   const { expenses = [], clients = [], outstanding = 0 } = q.data ?? {};
 
+  /** Load a pending claim into the form for editing. */
+  function startEdit(e: CompanyExpense) {
+    setEditingId(e.id);
+    setDate(e.expense_date);
+    setCategory(e.category);
+    setAmount(String(e.amount));
+    setBill(e.bill_number ?? '');
+    setDescription(e.description ?? '');
+    setClientId(e.client_id ?? '');
+    setPaidFromAdvance(e.paid_from_advance);
+    setReceipt(null);
+    document.getElementById('expense-form')?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setDate(isoDate(new Date())); setCategory(CATEGORIES[0]);
+    setAmount(''); setBill(''); setDescription(''); setClientId('');
+    setPaidFromAdvance(false); setReceipt(null);
+  }
+
   async function submit() {
     const amt = Number(amount);
     if (!date || !category || !Number.isFinite(amt) || amt <= 0) {
@@ -58,18 +81,28 @@ export function MyExpensesPage() {
     }
     setSaving(true);
     try {
-      await expenseApi.submit({
-        employee_id: employeeId, expense_date: date, category, amount: amt,
-        bill_number: bill || null, description: description || null,
-        client_id: clientId || null, receipt_url: null,
-        paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
-      }, receipt);
+      if (editingId) {
+        await expenseApi.updateOwn(editingId, {
+          expense_date: date, category, amount: amt,
+          bill_number: bill || null, description: description || null,
+          client_id: clientId || null,
+          paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
+        }, receipt);
+      } else {
+        await expenseApi.submit({
+          employee_id: employeeId, expense_date: date, category, amount: amt,
+          bill_number: bill || null, description: description || null,
+          client_id: clientId || null, receipt_url: null,
+          paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
+        }, receipt);
+      }
       toast.success(
-        receipt ? 'Expense and receipt submitted for approval.'
-                : 'Expense submitted for approval.',
+        editingId
+          ? (receipt ? 'Expense updated and receipt replaced.' : 'Expense updated.')
+          : (receipt ? 'Expense and receipt submitted for approval.'
+                     : 'Expense submitted for approval.'),
       );
-      setAmount(''); setBill(''); setDescription(''); setClientId('');
-      setPaidFromAdvance(false); setReceipt(null);
+      cancelEdit();
       q.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not submit expense');
@@ -85,6 +118,13 @@ export function MyExpensesPage() {
     { key: 'bill', header: 'Bill no.', cell: (r) => r.bill_number || '—' },
     { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
     { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
+    { key: 'act', header: '', align: 'right',
+      // Only a pending claim is editable; RLS enforces the same rule.
+      cell: (r) => r.status === 'pending'
+        ? (
+          <Button size="sm" variant="ghost" onClick={() => startEdit(r)}>Edit</Button>
+        )
+        : <span className="muted small">Locked</span> },
     { key: 'receipt', header: 'Receipt', align: 'right',
       cell: (r) => <ReceiptLink path={r.receipt_url} /> },
   ];
@@ -93,7 +133,16 @@ export function MyExpensesPage() {
     <>
       <PageHeader title="Company expenses" subtitle="Raise and track your expense claims" />
 
-      <Card title="New expense claim">
+      <Card
+        id="expense-form"
+        title={editingId ? 'Edit expense claim' : 'New expense claim'}
+      >
+        {editingId && (
+          <p className="callout-warn">
+            You are editing a pending claim. It can be changed until an admin
+            approves it.
+          </p>
+        )}
         <div className="form-grid-2">
           <TextInput label="Date" type="date" value={date}
             onChange={(e) => setDate(e.target.value)} />
@@ -132,9 +181,16 @@ export function MyExpensesPage() {
           </div>
         )}
         <ReceiptPicker file={receipt} onChange={setReceipt} />
-        <Button variant="primary" disabled={saving} onClick={() => void submit()}>
-          Submit expense
-        </Button>
+        <div className="btn-row">
+          <Button variant="primary" disabled={saving} onClick={() => void submit()}>
+            {saving
+              ? (editingId ? 'Saving…' : 'Submitting…')
+              : (editingId ? 'Save changes' : 'Submit expense')}
+          </Button>
+          {editingId && (
+            <Button variant="ghost" onClick={cancelEdit}>Cancel edit</Button>
+          )}
+        </div>
       </Card>
 
       <Card title="My expense history">

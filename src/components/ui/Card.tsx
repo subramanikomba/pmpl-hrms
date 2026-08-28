@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 
 export function Card(
-  { title, actions, children, className = '' }:
-  { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string },
+  { title, actions, children, className = '', id }:
+  { title?: ReactNode; actions?: ReactNode; children: ReactNode;
+    className?: string; id?: string },
 ) {
   return (
-    <section className={`card ${className}`.trim()}>
+    <section id={id} className={`card ${className}`.trim()}>
       {(title || actions) && (
         <header className="card-head">
           {title && <h2 className="card-title">{title}</h2>}

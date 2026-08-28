@@ -3,24 +3,31 @@ import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
-  attendanceApi, employeesApi, holidayApi, payrollApi,
+  attendanceApi, employeesApi, holidayApi, payrollApi, rulesApi,
   salaryAdvanceApi, salaryApi, settingsApi,
 } from '@/lib/api';
 import {
-  computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
-  isoDate, monthStart, round2, structureForMonth,
+  computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth,
+  isPayrollMonthLocked, isoDate, monthStart, round2, structureForMonth,
+  type AllowanceLine,
 } from '@/lib/payroll';
-import { formatCurrency, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
+import { formatCurrency, formatDate, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { TextInput } from '@/components/ui/Field';
+import { RecordPaymentModal } from './RecordPaymentModal';
+import { Modal } from '@/components/ui/Modal';
 import type { Employee, PayrollRecord, SalaryStructure } from '@/types/db';
 
 /** Per-employee editable inputs, keyed by employee id. */
-interface RowEdits { paidDays: string; performance: string; annual: string; other: string }
+interface RowEdits {
+  paidDays: string; performance: string; annual: string; other: string;
+  /** rule_key -> quantity entered by Admin for this month. */
+  allowanceQty: Record<string, string>;
+}
 
 export function PayrollPage() {
   const { employee } = useAuth();
@@ -29,13 +36,17 @@ export function PayrollPage() {
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [edits, setEdits] = useState<Record<string, RowEdits>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [paying, setPaying] = useState<
+    { record: PayrollRecord; employee: Employee } | null>(null);
+  const [allowancesFor, setAllowancesFor] = useState<
+    { employee: Employee; proratedBasic: number } | null>(null);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
   const dim = daysInMonth(month);
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [employees, existing, settings, holidays, attendance, structures, advances, recoveries] =
+    const [employees, existing, settings, holidays, attendance, structures, advances, recoveries, rules] =
       await Promise.all([
         employeesApi.listActive(),
         payrollApi.listForMonth(month),
@@ -45,6 +56,7 @@ export function PayrollPage() {
         Promise.all([] as Promise<SalaryStructure[]>[]).then(() => null),
         salaryAdvanceApi.listAll(),
         salaryAdvanceApi.recoveries(),
+        rulesApi.list(),
       ]);
     // Salary structures are fetched per employee (small team; keeps the
     // query simple and respects RLS without a custom view).
@@ -55,7 +67,7 @@ export function PayrollPage() {
     void structures;
     return {
       employees, existing, settings, holidays, attendance,
-      structureMap, advances, recoveries,
+      structureMap, advances, recoveries, rules,
     };
   }, [monthValue]);
 
@@ -65,8 +77,9 @@ export function PayrollPage() {
 
   const {
     employees, existing, settings, holidays, attendance, structureMap,
-    advances, recoveries,
+    advances, recoveries, rules,
   } = q.data;
+  const activeRules = rules.filter((r) => r.is_active);
 
   const monthLocked = isPayrollMonthLocked(month, settings.salary_payment_day, today);
   const holidayDates = new Set(holidays.map((h) => h.holiday_date));
@@ -85,27 +98,64 @@ export function PayrollPage() {
   function defaultsFor(emp: Employee): RowEdits {
     const existingRow = payrollByEmployee.get(emp.id);
     if (existingRow) {
+      // Rehydrate the quantities that produced the saved allowance total.
+      const detail = Array.isArray(existingRow.allowances_detail)
+        ? existingRow.allowances_detail as AllowanceLine[] : [];
+      const qty: Record<string, string> = {};
+      for (const line of detail) qty[line.rule_key] = String(line.quantity);
       return {
         paidDays: String(existingRow.paid_days),
         performance: String(existingRow.performance_bonus),
         annual: String(existingRow.annual_bonus),
         other: String(existingRow.other_deductions),
+        allowanceQty: qty,
       };
     }
     const records = attendance.filter((a) => a.employee_id === emp.id);
-    const b = computePaidDays({ month, records, holidayDates });
-    return { paidDays: String(b.paidDays), performance: '0', annual: '0', other: '0' };
+    const b = computePaidDays({
+      month, records, holidayDates, workingDays: settings.working_days });
+    return { paidDays: String(b.paidDays), performance: '0', annual: '0',
+             other: '0', allowanceQty: {} };
   }
 
   function editsFor(emp: Employee): RowEdits {
     return edits[emp.id] ?? defaultsFor(emp);
   }
 
+  function defaultsForId(empId: string): RowEdits {
+    const emp = employees.find((x) => x.id === empId);
+    return emp
+      ? defaultsFor(emp)
+      : { paidDays: '0', performance: '0', annual: '0', other: '0', allowanceQty: {} };
+  }
+
   function setEdit(empId: string, patch: Partial<RowEdits>) {
     setEdits((prev) => ({
       ...prev,
-      [empId]: { ...(prev[empId] ?? { paidDays: '0', performance: '0', annual: '0', other: '0' }), ...patch },
+      [empId]: {
+        // Fall back to the row's REAL defaults (paid days from attendance,
+        // existing saved figures), never to a hard-coded zero row — otherwise
+        // editing one field, such as an allowance quantity, would silently
+        // reset paid days to 0 and understate the salary.
+        ...(prev[empId] ?? defaultsForId(empId)),
+        ...patch,
+      },
     }));
+  }
+
+  /** Allowance lines from the configured rules and the Admin's quantities. */
+  function allowanceLinesFor(emp: Employee, basic: number): AllowanceLine[] {
+    const e = editsFor(emp);
+    return activeRules.map((rule) => {
+      const quantity = Number(e.allowanceQty[rule.rule_key] ?? 0) || 0;
+      return {
+        rule_key: rule.rule_key,
+        description: rule.description,
+        rate_percent: Number(rule.rate_percent),
+        quantity,
+        amount: computeAllowanceAmount(basic, Number(rule.rate_percent), quantity),
+      };
+    }).filter((l) => l.amount > 0);
   }
 
   function computeFor(emp: Employee) {
@@ -122,15 +172,23 @@ export function PayrollPage() {
       ? Number(existingRow.salary_advance_recovered)
       : Math.max(0, outstanding);
 
+    // Allowances are a percentage of the PRORATED basic for the month.
+    const proratedBasic = round2(structure.basic * (Math.min(Number(e.paidDays) || 0, dim) / dim));
+    const allowanceLines = allowanceLinesFor(emp, proratedBasic);
+    const allowancesTotal = round2(allowanceLines.reduce((t, l) => t + l.amount, 0));
+
     return {
       structure,
       recovery,
+      allowanceLines,
+      allowancesTotal,
       result: computePayroll({
         structure,
         paidDays: Number(e.paidDays) || 0,
         daysInMonth: dim,
         performanceBonus: Number(e.performance) || 0,
         annualBonus: Number(e.annual) || 0,
+        allowancesTotal,
         professionalTax: month.getMonth() === 1 ? settings.pt_february : settings.pt_monthly,
         salaryAdvanceRecovered: recovery,
         otherDeductions: Number(e.other) || 0,
@@ -155,6 +213,8 @@ export function PayrollPage() {
         days_in_month: dim,
         paid_days: Number(e.paidDays) || 0,
         ...computed.result,
+        allowances_total: computed.allowancesTotal,
+        allowances_detail: computed.allowanceLines,
         performance_bonus: Number(e.performance) || 0,
         annual_bonus: Number(e.annual) || 0,
         professional_tax: pt,
@@ -185,6 +245,23 @@ export function PayrollPage() {
       toast.error(err instanceof Error ? err.message : 'Could not save payroll');
     } finally {
       setSavingId(null);
+    }
+  }
+
+  /** Reverse a payment entry; the salary figures are untouched. */
+  async function undoPayment(row: PayrollRecord, emp: Employee) {
+    const ok = window.confirm(
+      `Undo the recorded payment for ${emp.first_name} ${emp.last_name}?\n\n`
+      + 'The payment date, mode and reference will be cleared and the record '
+      + 'returns to Processed. Salary figures are not changed.',
+    );
+    if (!ok) return;
+    try {
+      await payrollApi.clearPayment(row.id);
+      toast.info('Payment entry removed.');
+      q.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not undo the payment');
     }
   }
 
@@ -219,6 +296,76 @@ export function PayrollPage() {
           </p>
         )}
       </Card>
+
+      {allowancesFor && (() => {
+        const emp = allowancesFor.employee;
+        const ed = editsFor(emp);
+        // Captured from the row when the modal was opened, so it always
+        // matches the figure the grid is showing.
+        const proratedBasic = allowancesFor.proratedBasic;
+        return (
+          <Modal open size="md"
+            title={`Allowances — ${emp.first_name} ${emp.last_name}`}
+            onClose={() => setAllowancesFor(null)} dismissOnBackdrop={false}>
+            <p className="muted small">
+              Rates come from Payroll Settings. Enter the quantity for this month;
+              each amount is that percentage of the prorated basic
+              ({formatCurrency(proratedBasic)}).
+            </p>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Rule</th><th className="num">Rate</th>
+                  <th>Quantity</th><th className="num">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeRules.map((rule) => {
+                  const qty = Number(ed.allowanceQty[rule.rule_key] ?? 0) || 0;
+                  const amt = computeAllowanceAmount(
+                    proratedBasic, Number(rule.rate_percent), qty);
+                  return (
+                    <tr key={rule.rule_key}>
+                      <td>{rule.description}</td>
+                      <td className="num">{rule.rate_percent}%</td>
+                      <td>
+                        <input className="cell-input" type="number" min="0" step="0.5"
+                          value={ed.allowanceQty[rule.rule_key] ?? ''}
+                          placeholder="0"
+                          onChange={(ev) => setEdit(emp.id, {
+                            allowanceQty: {
+                              ...ed.allowanceQty,
+                              [rule.rule_key]: ev.target.value,
+                            },
+                          })} />
+                      </td>
+                      <td className="num">{formatCurrency(amt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="total-line">
+              Total allowances:{' '}
+              <strong>{formatCurrency(computeFor(emp)?.allowancesTotal ?? 0)}</strong>
+            </p>
+            <div className="row-end gap">
+              <Button variant="primary" onClick={() => setAllowancesFor(null)}>
+                Done
+              </Button>
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {paying && (
+        <RecordPaymentModal
+          record={paying.record}
+          employee={paying.employee}
+          onClose={() => setPaying(null)}
+          onDone={() => { setPaying(null); q.reload(); }}
+        />
+      )}
 
       <div className="table-scroll">
         <table className="payroll-table">
@@ -268,7 +415,19 @@ export function PayrollPage() {
                     <>
                       <td className="num">{formatCurrency(computed.result.basic)}</td>
                       <td className="num">{formatCurrency(computed.result.hra)}</td>
-                      <td className="num">{formatCurrency(allowances)}</td>
+                      <td className="num">
+                        {formatCurrency(allowances + (computed?.allowancesTotal ?? 0))}
+                        {activeRules.length > 0 && !rowLocked && (
+                          <button className="link-btn"
+                            onClick={() => setAllowancesFor({
+                              employee: emp,
+                              proratedBasic: computed?.result.basic ?? 0,
+                            })}
+                            title="Enter allowance quantities">
+                            {(computed?.allowancesTotal ?? 0) > 0 ? 'edit' : 'add'}
+                          </button>
+                        )}
+                      </td>
                     </>
                   ) : (
                     <td className="num muted" colSpan={3}>No salary structure</td>
@@ -300,17 +459,37 @@ export function PayrollPage() {
                   </td>
                   <td><StatusBadge status={row?.status ?? 'draft'} /></td>
                   <td>
-                    {rowLocked && row ? (
-                      <Button size="sm" variant="ghost" onClick={() => void reopen(row)}>
-                        Reopen
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="primary"
-                        disabled={!computed || savingId === emp.id}
-                        onClick={() => void save(emp)}>
-                        {savingId === emp.id ? 'Saving…' : 'Save'}
-                      </Button>
-                    )}
+                    <div className="row-actions">
+                      {row?.status === 'paid' ? (
+                        <>
+                          <span className="paid-ref" title={
+                            `${row.payment_mode ?? ''}${row.cheque_utr ? ' · ' + row.cheque_utr : ''}`
+                          }>
+                            {formatDate(row.payment_date)}
+                          </span>
+                          <Button size="sm" variant="ghost"
+                            onClick={() => void undoPayment(row, emp)}>Undo</Button>
+                        </>
+                      ) : rowLocked && row ? (
+                        <Button size="sm" variant="ghost" onClick={() => void reopen(row)}>
+                          Reopen
+                        </Button>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="primary"
+                            disabled={!computed || savingId === emp.id}
+                            onClick={() => void save(emp)}>
+                            {savingId === emp.id ? 'Saving…' : 'Save'}
+                          </Button>
+                          {row?.status === 'processed' && (
+                            <Button size="sm" variant="secondary"
+                              onClick={() => setPaying({ record: row, employee: emp })}>
+                              Pay
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

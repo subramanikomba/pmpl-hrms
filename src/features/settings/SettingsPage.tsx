@@ -12,6 +12,15 @@ import { TextArea, TextInput } from '@/components/ui/Field';
 import { DataTable } from '@/components/ui/DataTable';
 import type { CompanySettings } from '@/types/db';
 
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+function describeWorkingDays(days: readonly number[]): string {
+  if (days.length === 0) return 'none selected';
+  const on = [...days].sort((a, b) => a - b).map((d) => DAY_NAMES[d]);
+  const off = DAY_NAMES.filter((_, i) => !days.includes(i));
+  return `${on.join(', ')}${off.length ? ` · weekly off: ${off.join(', ')}` : ''}`;
+}
+
 export function SettingsPage() {
   const toast = useToast();
   const q = useQuery(async () => {
@@ -43,6 +52,7 @@ export function SettingsPage() {
         gst_number: s.gst_number, pt_monthly: Number(s.pt_monthly),
         pt_february: Number(s.pt_february),
         salary_payment_day: Number(s.salary_payment_day),
+        working_days: s.working_days ?? [1, 2, 3, 4, 5, 6],
       });
       toast.success('Company settings saved.');
       setForm(null); q.reload();
@@ -92,6 +102,38 @@ export function SettingsPage() {
           hint="Payroll for a month locks after this day passes." />
         <Button variant="primary" disabled={saving} onClick={() => void saveSettings()}>
           {saving ? 'Saving…' : 'Save settings'}
+        </Button>
+      </Card>
+
+      <Card title="Working days" className="settings-card">
+        <p className="muted small">
+          Days marked as working days count for attendance. Days left unticked
+          are weekly offs and are treated as paid days in payroll.
+        </p>
+        <div className="weekday-row">
+          {DAY_NAMES.map((label, dow) => {
+            const on = (s.working_days ?? [1, 2, 3, 4, 5, 6]).includes(dow);
+            return (
+              <label key={dow} className={`weekday ${on ? 'is-on' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={(e) => {
+                    const cur = new Set(s.working_days ?? [1, 2, 3, 4, 5, 6]);
+                    if (e.target.checked) cur.add(dow); else cur.delete(dow);
+                    set('working_days', [...cur].sort((a, b) => a - b));
+                  }}
+                />
+                <span>{label}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="field-hint">
+          Currently working: {describeWorkingDays(s.working_days ?? [1, 2, 3, 4, 5, 6])}
+        </p>
+        <Button variant="primary" disabled={saving} onClick={() => void saveSettings()}>
+          {saving ? 'Saving…' : 'Save working days'}
         </Button>
       </Card>
 

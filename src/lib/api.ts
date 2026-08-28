@@ -255,9 +255,72 @@ export const expenseApi = {
     return data.signedUrl;
   },
   /**
+   * Update a claim the employee still owns. Guarded by `status = 'pending'`
+   * so an approved claim can never be altered, even if the UI is bypassed —
+   * RLS already restricts this to the claim's own employee.
+   */
+  async updateOwn(id: string, patch: {
+    expense_date: string; category: string; amount: number;
+    bill_number: string | null; description: string | null;
+    client_id: string | null; paid_from_advance: boolean;
+  }, receipt?: File | null): Promise<void> {
+    let receipt_url: string | undefined;
+    if (receipt) {
+      const ext = receipt.name.split('.').pop()?.toLowerCase() ?? 'bin';
+      const { data: existing } = await supabase.from('company_expenses')
+        .select('employee_id').eq('id', id).single();
+      const employeeId = (existing as { employee_id: string } | null)?.employee_id;
+      if (!employeeId) throw new Error('Expense not found');
+      const path = `${employeeId}/${id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from(RECEIPT_BUCKET).upload(path, receipt, { upsert: true });
+      if (upErr) throw new Error(upErr.message);
+      receipt_url = path;
+    }
+    const { error } = await supabase.from('company_expenses')
+      .update(receipt_url ? { ...patch, receipt_url } : patch)
+      .eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
+  /**
    * Spec: an expense need not relate to an advance. If `advanceId` is given
    * the approved amount is accounted against that outstanding advance.
    */
+  /**
+   * Update a claim the employee still owns. Scoped to status='pending' so an
+   * approved claim can never be altered — RLS enforces the same rule.
+   */
+  async updatePending(
+    id: string,
+    employeeId: string,
+    patch: Partial<Pick<CompanyExpense,
+      'expense_date' | 'category' | 'amount' | 'bill_number'
+      | 'description' | 'client_id' | 'paid_from_advance'>>,
+    receipt?: File | null,
+  ): Promise<void> {
+    let receipt_url: string | undefined;
+    if (receipt) {
+      // Same path scheme as submit(), so storage RLS (folder = employee id)
+      // continues to apply. upsert replaces an earlier receipt.
+      const ext = (receipt.name.split('.').pop() ?? 'bin').toLowerCase();
+      const path = `${employeeId}/${id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from(RECEIPT_BUCKET)
+        .upload(path, receipt, { upsert: true, contentType: receipt.type });
+      if (upErr) throw new Error(`Receipt upload failed: ${upErr.message}`);
+      receipt_url = path;
+    }
+    const { error } = await supabase.from('company_expenses')
+      .update(receipt_url ? { ...patch, receipt_url } : patch)
+      .eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
+  /** Withdraw a claim that has not been approved yet. */
+  async deletePending(id: string): Promise<void> {
+    const { error } = await supabase.from('company_expenses')
+      .delete().eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
   async approve(
     id: string, reviewerId: string,
     accounting?: { advanceId: string; amount: number },
@@ -395,6 +458,26 @@ export const payrollApi = {
   }): Promise<void> {
     const { error } = await supabase.from('payroll')
       .upsert(row, { onConflict: 'employee_id,payroll_month' });
+    if (error) throw new Error(error.message);
+  },
+  /**
+   * Record payment details and move the record to 'paid'. Only a processed
+   * record can be paid — a draft has no confirmed figures to pay against.
+   */
+  async recordPayment(id: string, payment: {
+    payment_date: string; payment_mode: string; cheque_utr: string | null;
+  }): Promise<void> {
+    const { error } = await supabase.from('payroll').update({
+      ...payment, status: 'paid',
+    }).eq('id', id).eq('status', 'processed');
+    if (error) throw new Error(error.message);
+  },
+  /** Undo a payment entry, returning the record to 'processed'. */
+  async clearPayment(id: string): Promise<void> {
+    const { error } = await supabase.from('payroll').update({
+      payment_date: null, payment_mode: null, cheque_utr: null,
+      status: 'processed',
+    }).eq('id', id).eq('status', 'paid');
     if (error) throw new Error(error.message);
   },
   async reopen(id: string, adminId: string, reason: string): Promise<void> {

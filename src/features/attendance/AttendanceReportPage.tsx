@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
-import { attendanceApi, employeesApi, holidayApi } from '@/lib/api';
+import { attendanceApi, employeesApi, holidayApi, settingsApi } from '@/lib/api';
 import { computePaidDays, daysInMonth, isoDate, monthStart } from '@/lib/payroll';
 import { monthInputValue, parseMonthInput } from '@/lib/format';
 import { Card } from '@/components/ui/Card';
@@ -26,11 +26,12 @@ export function AttendanceReportPage() {
   const emps = useQuery(() => employeesApi.listActive(), []);
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [records, holidays] = await Promise.all([
+    const [records, holidays, settings] = await Promise.all([
       attendanceApi.listForMonth(month, employeeId || undefined),
       holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
+      settingsApi.get(),
     ]);
-    return { records, holidays };
+    return { records, holidays, settings };
   }, [monthValue, employeeId]);
 
   const employees = (emps.data ?? []).filter((e) => !employeeId || e.id === employeeId);
@@ -38,6 +39,7 @@ export function AttendanceReportPage() {
   const days = Array.from({ length: total }, (_, i) =>
     new Date(month.getFullYear(), month.getMonth(), i + 1));
   const holidayDates = new Set((q.data?.holidays ?? []).map((h) => h.holiday_date));
+  const workingSet = new Set(q.data?.settings.working_days ?? [1, 2, 3, 4, 5, 6]);
   const todayStr = isoDate(today);
 
   const byEmployee = new Map<string, Map<string, string>>();
@@ -50,7 +52,7 @@ export function AttendanceReportPage() {
   function cellKind(empId: string, d: Date): CellKind {
     const ds = isoDate(d);
     const status = byEmployee.get(empId)?.get(ds);
-    if (d.getDay() === 0) return 'weekly';
+    if (!workingSet.has(d.getDay())) return 'weekly';
     if (status === 'present') return 'present';
     if (status === 'paid_leave') return 'leave';
     if (holidayDates.has(ds) || status === 'company_holiday') return 'holiday';
@@ -90,7 +92,7 @@ export function AttendanceReportPage() {
                     <th className="emp-col">Employee</th>
                     {days.map((d) => (
                       <th key={d.getDate()}
-                        className={d.getDay() === 0 ? 'is-sunday'
+                        className={!workingSet.has(d.getDay()) ? 'is-sunday'
                           : holidayDates.has(isoDate(d)) ? 'is-holiday' : ''}>
                         <span className="d-num">{d.getDate()}</span>
                         <span className="d-dow">{DOW[d.getDay()]}</span>
@@ -110,7 +112,8 @@ export function AttendanceReportPage() {
                   ) : employees.map((emp) => {
                     const records = (q.data?.records ?? [])
                       .filter((r) => r.employee_id === emp.id);
-                    const b = computePaidDays({ month, records, holidayDates, upTo: today });
+                    const b = computePaidDays({ month, records, holidayDates, upTo: today,
+                      workingDays: q.data?.settings.working_days });
                     return (
                       <tr key={emp.id}>
                         <td className="emp-col">

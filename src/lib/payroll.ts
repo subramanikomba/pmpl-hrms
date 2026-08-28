@@ -59,8 +59,11 @@ export function computePaidDays(params: {
   records: Pick<AttendanceRecord, 'date' | 'status'>[];
   holidayDates: ReadonlySet<string>;
   upTo?: Date;
+  /** Working days (0=Sun..6=Sat). Defaults to Mon–Sat. */
+  workingDays?: readonly number[];
 }): PaidDayBreakdown {
   const { month, records, holidayDates } = params;
+  const working = new Set(params.workingDays ?? [1, 2, 3, 4, 5, 6]);
   const total = daysInMonth(month);
   const byDate = new Map<string, AttendanceStatus>();
   for (const r of records) byDate.set(r.date, r.status);
@@ -76,8 +79,9 @@ export function computePaidDays(params: {
 
     const status = byDate.get(ds);
 
-    // Sunday is always a paid weekly off, regardless of any stray record.
-    if (d.getDay() === 0) { weeklyOffs++; continue; }
+    // A non-working day is always a paid weekly off, regardless of any
+    // stray attendance record.
+    if (!working.has(d.getDay())) { weeklyOffs++; continue; }
     if (status === 'present') { present++; continue; }
     if (status === 'paid_leave') { paidLeave++; continue; }
     if (holidayDates.has(ds) || status === 'company_holiday') { companyHolidays++; continue; }
@@ -91,6 +95,29 @@ export function computePaidDays(params: {
   };
 }
 
+/** One configured allowance rule, with the quantity the Admin entered. */
+export interface AllowanceLine {
+  rule_key: string;
+  description: string;
+  rate_percent: number;
+  /** Nights, days, projects, or 1/0 for a one-off such as attendance bonus. */
+  quantity: number;
+  amount: number;
+}
+
+/**
+ * Spec §8: allowance rules are percentages (e.g. 2.5% per night). The rate
+ * applies to Basic, multiplied by the quantity the Admin enters for that
+ * month. The system does not infer quantities — there is no visit tracking,
+ * so the Admin supplies them.
+ */
+export function computeAllowanceAmount(
+  basic: number, ratePercent: number, quantity: number,
+): number {
+  if (!Number.isFinite(quantity) || quantity <= 0) return 0;
+  return round2(basic * (ratePercent / 100) * quantity);
+}
+
 export interface PayrollInput {
   structure: Pick<SalaryStructure,
     'basic' | 'hra' | 'special_allowance' | 'transport_allowance'
@@ -99,6 +126,8 @@ export interface PayrollInput {
   daysInMonth: number;
   performanceBonus: number;
   annualBonus: number;
+  /** Total of the configured allowance rules for this month. */
+  allowancesTotal?: number;
   professionalTax: number;
   salaryAdvanceRecovered: number;
   otherDeductions: number;
@@ -134,7 +163,8 @@ export function computePayroll(input: PayrollInput): PayrollComputation {
   const gross_salary = round2(
     basic + hra + special_allowance + transport_allowance +
     medical_allowance + conveyance_other +
-    input.performanceBonus + input.annualBonus,
+    input.performanceBonus + input.annualBonus +
+    (input.allowancesTotal ?? 0),
   );
 
   const total_deductions = round2(
