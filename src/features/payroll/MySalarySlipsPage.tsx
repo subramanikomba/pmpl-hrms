@@ -7,7 +7,8 @@ import { monthStart } from '@/lib/payroll';
 import {
   formatCurrency, formatDate, formatMonth, monthInputValue, parseMonthInput,
 } from '@/lib/format';
-import { generatePdf } from './slipDocument';
+import { generatePdf, generatePdfPreview } from './slipDocument';
+import { PdfViewerModal } from './PdfViewerModal';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -28,6 +29,7 @@ export function MySalarySlipsPage() {
   const today = useMemo(() => new Date(), []);
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [busy, setBusy] = useState(false);
+  const [viewing, setViewing] = useState(false);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
   const employeeId = employee?.id ?? '';
@@ -86,11 +88,12 @@ export function MySalarySlipsPage() {
                 )}
               </div>
 
-              {/* PDF only for employees: a non-editable document. Word is an
-                  editable format, so it is deliberately not offered here. */}
+              {/* Employees get only a View action. The viewer itself provides
+                  Download PDF and Close, so no separate download button is
+                  offered here. Word (an editable format) is never offered. */}
               <div className="row-end gap">
                 <Button variant="primary" disabled={busy}
-                  onClick={() => void download('pdf')}>Download PDF</Button>
+                  onClick={() => setViewing(true)}>View</Button>
               </div>
             </>
           ) : (
@@ -100,6 +103,17 @@ export function MySalarySlipsPage() {
             </p>
           )}
       </Card>
+
+      {viewing && employee && refs.data && slip.data && (
+        <PdfViewerModal
+          title={`Salary slip — ${formatMonth(month)}`}
+          build={() => generatePdfPreview({
+            employee, payroll: slip.data!, settings: refs.data!, month,
+          })}
+          onClose={() => setViewing(false)}
+          onDownload={() => void download('pdf')}
+        />
+      )}
 
       <p className="muted small">
         Salary slips are generated in your browser and are not stored on the server.
