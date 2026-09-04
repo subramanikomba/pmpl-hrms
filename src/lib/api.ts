@@ -110,6 +110,16 @@ export const salaryApi = {
       .upsert(row, { onConflict: 'employee_id,effective_from' });
     if (error) throw new Error(error.message);
   },
+  /**
+   * Remove a revision. Callers must first confirm it has not been used by a
+   * finalised payroll — see structureIsLocked — so historical payroll can
+   * never lose the structure it was calculated from.
+   */
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase.from('salary_structures')
+      .delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
 };
 
 /* ── Attendance ────────────────────────────────────────────────── */
@@ -576,6 +586,33 @@ export const salaryAdvanceApi = {
     const { error } = await supabase.from('salary_advance_recoveries').insert(input);
     if (error) throw new Error(error.message);
   },
+  /**
+   * Make the recovery ledger match the payroll figure for one employee-month.
+   *
+   * Payroll can be re-saved with a corrected amount, so the previous rows for
+   * that month are cleared and the current amount re-recorded. Without this
+   * the ledger and payroll.salary_advance_recovered silently diverge.
+   */
+  async syncRecovery(input: {
+    employee_id: string; payroll_month: string;
+    salary_advance_id: string | null; recovered_amount: number;
+  }): Promise<void> {
+    const { error: delErr } = await supabase
+      .from('salary_advance_recoveries').delete()
+      .eq('employee_id', input.employee_id)
+      .eq('payroll_month', input.payroll_month);
+    if (delErr) throw new Error(delErr.message);
+
+    if (input.recovered_amount > 0 && input.salary_advance_id) {
+      const { error } = await supabase.from('salary_advance_recoveries').insert({
+        salary_advance_id: input.salary_advance_id,
+        employee_id: input.employee_id,
+        payroll_month: input.payroll_month,
+        recovered_amount: input.recovered_amount,
+      });
+      if (error) throw new Error(error.message);
+    }
+  },
 };
 
 /* ── Payroll ───────────────────────────────────────────────────── */
@@ -594,6 +631,14 @@ export const payrollApi = {
       await supabase.from('payroll')
         .select(`*, employees!employee_id(${EMP_FIELDS})`)
         .eq('payroll_month', isoDate(monthStart(month))),
+    );
+  },
+  /** Every payroll row for one employee, used to protect salary revisions. */
+  async listForEmployee(employeeId: string): Promise<PayrollRecord[]> {
+    return unwrapList<PayrollRecord>(
+      await supabase.from('payroll').select('*')
+        .eq('employee_id', employeeId)
+        .order('payroll_month', { ascending: false }),
     );
   },
   async listForYear(fyStartYear: number): Promise<WithEmployee<PayrollRecord>[]> {

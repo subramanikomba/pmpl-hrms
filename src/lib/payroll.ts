@@ -403,3 +403,47 @@ export function findUnmarkedAttendance(args: {
   }
   return out;
 }
+
+/* ── Salary advance recovery ───────────────────────────────────── */
+
+/**
+ * Clamp an Admin-entered salary-advance recovery.
+ *
+ * Two ceilings apply, and the lower wins:
+ *   - the outstanding advance, so the company never recovers more than it lent
+ *   - the salary payable before recovery, so net pay can never go negative
+ *
+ * Negative input is treated as zero. All figures are rounded to paise.
+ */
+export function capRecovery(
+  requested: number, outstanding: number, netBeforeRecovery: number,
+): number {
+  const ceiling = Math.min(
+    Math.max(0, round2(outstanding)),
+    Math.max(0, round2(netBeforeRecovery)),
+  );
+  return round2(Math.min(Math.max(0, requested), ceiling));
+}
+
+
+/* ── Salary structure protection ───────────────────────────────── */
+
+/**
+ * May this salary revision be deleted?
+ *
+ * A revision is locked once any FINALISED payroll (anything past draft) exists
+ * for a month it could have applied to — that is, any payroll month on or
+ * after its effective date. Deleting it would change what a past payslip was
+ * calculated from, so correction is allowed but removal is not.
+ *
+ * Draft payroll does not lock a revision: nothing has been issued yet.
+ */
+export function structureIsLocked(
+  effectiveFrom: string,
+  payrollRows: readonly { payroll_month: string; status: string }[],
+): boolean {
+  const effectiveMonth = effectiveFrom.slice(0, 7);
+  return payrollRows.some(
+    (p) => p.status !== 'draft' && p.payroll_month.slice(0, 7) >= effectiveMonth,
+  );
+}

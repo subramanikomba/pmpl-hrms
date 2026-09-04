@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
-import { employeesApi, salaryApi } from '@/lib/api';
+import { employeesApi, payrollApi, salaryApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
-import { isoDate } from '@/lib/payroll';
+import { isoDate, structureIsLocked } from '@/lib/payroll';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
@@ -12,7 +12,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Modal } from '@/components/ui/Modal';
 import { Checkbox, TextInput } from '@/components/ui/Field';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import type { Employee } from '@/types/db';
+import type { Employee, SalaryStructure } from '@/types/db';
 
 interface NewEmployeeForm {
   first_name: string; last_name: string;
@@ -202,15 +202,23 @@ function SalaryStructureModal(
   { employee, onClose }: { employee: Employee; onClose: () => void },
 ) {
   const toast = useToast();
-  const q = useQuery(() => salaryApi.listFor(employee.id), [employee.id]);
+  const q = useQuery(async () => {
+    const [structures, payroll] = await Promise.all([
+      salaryApi.listFor(employee.id),
+      payrollApi.listForEmployee(employee.id),
+    ]);
+    return { structures, payroll };
+  }, [employee.id]);
   const [effective, setEffective] = useState(isoDate(new Date()));
+  // Which revision the form is currently correcting, if any.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Amounts>(ZERO);
   const [saving, setSaving] = useState(false);
   const [seeded, setSeeded] = useState(false);
 
   // Seed the form from the latest revision, once.
-  if (!seeded && q.data && q.data.length > 0) {
-    const latest = q.data[0];
+  if (!seeded && q.data && q.data.structures.length > 0) {
+    const latest = q.data.structures[0];
     if (latest) {
       setAmounts({
         basic: String(latest.basic), hra: String(latest.hra),
@@ -224,6 +232,38 @@ function SalaryStructureModal(
   }
 
   const total = COMPONENTS.reduce((s, [k]) => s + (Number(amounts[k]) || 0), 0);
+  const structures = q.data?.structures ?? [];
+  const payrollRows = q.data?.payroll ?? [];
+
+  /** Load a revision into the form so a data-entry mistake can be corrected. */
+  function edit(row: SalaryStructure) {
+    setEditingId(row.id);
+    setEffective(row.effective_from);
+    setAmounts({
+      basic: String(row.basic), hra: String(row.hra),
+      special_allowance: String(row.special_allowance),
+      transport_allowance: String(row.transport_allowance),
+      medical_allowance: String(row.medical_allowance),
+      conveyance_other: String(row.conveyance_other),
+    });
+  }
+
+  async function remove(row: SalaryStructure) {
+    if (structureIsLocked(row.effective_from, payrollRows)) {
+      toast.error('This revision has been used in finalised payroll and cannot be deleted.');
+      return;
+    }
+    if (!window.confirm(
+      `Delete the revision effective ${formatDate(row.effective_from)}?`)) return;
+    try {
+      await salaryApi.remove(row.id);
+      if (editingId === row.id) setEditingId(null);
+      toast.info('Salary revision deleted.');
+      q.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not delete the revision');
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -238,7 +278,9 @@ function SalaryStructureModal(
         medical_allowance: Number(amounts.medical_allowance) || 0,
         conveyance_other: Number(amounts.conveyance_other) || 0,
       });
-      toast.success('Salary structure saved.');
+      toast.success(editingId
+        ? 'Salary revision corrected.' : 'Salary structure saved.');
+      setEditingId(null);
       q.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save salary structure');
@@ -257,10 +299,19 @@ function SalaryStructureModal(
     >
       <p className="muted">
         Revisions are effective-dated, so payroll for past months keeps using the
-        structure that applied at the time.
+        structure that applied at the time. A revision used by finalised
+        payroll can be corrected but not deleted.
       </p>
 
-      <h3 className="section-title">New / updated revision</h3>
+      <h3 className="section-title">
+        {editingId ? 'Correct revision' : 'New / updated revision'}
+      </h3>
+      {editingId && (
+        <p className="callout-warn">
+          Correcting the revision effective {formatDate(effective)}. Saving
+          overwrites it; change the effective date instead to add a new one.
+        </p>
+      )}
       <TextInput label="Effective from" type="date" value={effective}
         onChange={(e) => setEffective(e.target.value)} />
       <div className="form-grid-2">
@@ -275,8 +326,14 @@ function SalaryStructureModal(
       <p className="total-line">Monthly gross (full month): <strong>{formatCurrency(total)}</strong></p>
       <div className="row-end gap">
         <Button variant="ghost" onClick={onClose}>Close</Button>
+        {editingId && (
+          <Button variant="secondary" onClick={() => {
+            setEditingId(null);
+            setEffective(isoDate(new Date()));
+          }}>Cancel correction</Button>
+        )}
         <Button variant="primary" disabled={saving} onClick={() => void save()}>
-          {saving ? 'Saving…' : 'Save revision'}
+          {saving ? 'Saving…' : editingId ? 'Save correction' : 'Save revision'}
         </Button>
       </div>
 
@@ -289,8 +346,25 @@ function SalaryStructureModal(
               key, header: label, align: 'right' as const,
               cell: (s: { [K in ComponentKey]: number }) => formatCurrency(s[key]),
             })),
+            { key: 'act', header: '', align: 'right' as const,
+              cell: (row: SalaryStructure) => {
+                const locked = structureIsLocked(row.effective_from, payrollRows);
+                return (
+                  <div className="row-end gap-sm" style={{ marginTop: 0 }}>
+                    <Button size="sm" variant="secondary"
+                      onClick={() => edit(row)}>Edit</Button>
+                    <Button size="sm" variant="ghost" disabled={locked}
+                      title={locked
+                        ? 'Used in finalised payroll — cannot be deleted'
+                        : undefined}
+                      onClick={() => void remove(row)}>
+                      {locked ? 'Locked' : 'Delete'}
+                    </Button>
+                  </div>
+                );
+              } },
           ]}
-          rows={q.data ?? []}
+          rows={structures}
           rowKey={(s) => s.id}
           empty="No salary structure defined yet."
         />

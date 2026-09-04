@@ -3,7 +3,7 @@ import {
   computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
   isoDate, professionalTaxFor, round2, structureForMonth, employeeMayMark,
   needsPresentApproval, deriveBonusCounts, qualifiesForAttendanceBonus,
-  findUnmarkedAttendance,
+  findUnmarkedAttendance, capRecovery, structureIsLocked,
 } from './payroll';
 
 const STRUCT = {
@@ -479,5 +479,55 @@ describe('findUnmarkedAttendance', () => {
     // 6 Sep is a Sunday; 2 Sep is a holiday. Neither may appear.
     expect(out.some((x) => x.date === '2026-09-06')).toBe(false);
     expect(out.some((x) => x.date === '2026-09-02')).toBe(false);
+  });
+});
+
+describe('capRecovery', () => {
+  it('recovers the full request when both ceilings allow it', () => {
+    expect(capRecovery(1000, 5000, 8000)).toBe(1000);
+  });
+  it('never recovers more than the outstanding advance', () => {
+    expect(capRecovery(5000, 1200, 8000)).toBe(1200);
+  });
+  it('never pushes net pay below zero', () => {
+    // Outstanding 10,000 but only 5,000 payable this month.
+    expect(capRecovery(10000, 10000, 5000)).toBe(5000);
+  });
+  it('applies the lower of the two ceilings', () => {
+    expect(capRecovery(9999, 3000, 2000)).toBe(2000);
+    expect(capRecovery(9999, 2000, 3000)).toBe(2000);
+  });
+  it('treats negatives and blanks as zero', () => {
+    expect(capRecovery(-500, 5000, 8000)).toBe(0);
+    expect(capRecovery(0, 5000, 8000)).toBe(0);
+  });
+  it('returns zero when there is nothing payable', () => {
+    expect(capRecovery(1000, 5000, 0)).toBe(0);
+    expect(capRecovery(1000, 5000, -200)).toBe(0);
+  });
+});
+
+describe('structureIsLocked', () => {
+  const rows = (...r: [string, string][]) =>
+    r.map(([payroll_month, status]) => ({ payroll_month, status }));
+
+  it('is unlocked when no payroll exists', () => {
+    expect(structureIsLocked('2026-08-01', [])).toBe(false);
+  });
+  it('is locked by finalised payroll in the same month', () => {
+    expect(structureIsLocked('2026-08-01', rows(['2026-08-01', 'processed'])))
+      .toBe(true);
+  });
+  it('is locked by finalised payroll in a later month', () => {
+    expect(structureIsLocked('2026-08-01', rows(['2026-09-01', 'paid'])))
+      .toBe(true);
+  });
+  it('is not locked by payroll from before it took effect', () => {
+    expect(structureIsLocked('2026-09-01', rows(['2026-08-01', 'paid'])))
+      .toBe(false);
+  });
+  it('is not locked by draft payroll', () => {
+    expect(structureIsLocked('2026-08-01', rows(['2026-09-01', 'draft'])))
+      .toBe(false);
   });
 });

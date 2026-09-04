@@ -7,8 +7,8 @@ import {
   rulesApi, salaryAdvanceApi, salaryApi, settingsApi,
 } from '@/lib/api';
 import {
-  computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth,
-  deriveBonusCounts, findUnmarkedAttendance,
+  capRecovery, computeAllowanceAmount, computePaidDays, computePayroll,
+  daysInMonth, deriveBonusCounts, findUnmarkedAttendance,
   isPayrollMonthLocked, isoDate, monthStart, round2, structureForMonth,
   type AllowanceLine,
 } from '@/lib/payroll';
@@ -28,6 +28,8 @@ import type { Employee, PayrollRecord, SalaryStructure } from '@/types/db';
 interface RowEdits {
   paidDays: string; performance: string; annual: string; other: string;
   /** rule_key -> quantity entered by Admin for this month. */
+  /** Admin's salary-advance recovery for this month; blank means the default. */
+  recovery: string;
   allowanceQty: Record<string, string>;
   /** Optional Admin note when a system-derived Count is overridden. */
   allowanceReason: Record<string, string>;
@@ -56,14 +58,14 @@ export function PayrollPage() {
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [employees, existing, settings, holidays, attendance, structures, advances, recoveries, rules] =
+    const [employees, existing, settings, holidays, attendance,
+      advances, recoveries, rules] =
       await Promise.all([
         employeesApi.listActive(),
         payrollApi.listForMonth(month),
         settingsApi.get(),
         holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
         attendanceApi.listForMonth(month),
-        Promise.all([] as Promise<SalaryStructure[]>[]).then(() => null),
         salaryAdvanceApi.listAll(),
         salaryAdvanceApi.recoveries(),
         rulesApi.list(),
@@ -77,7 +79,6 @@ export function PayrollPage() {
     await Promise.all(employees.map(async (e) => {
       structureMap.set(e.id, await salaryApi.listFor(e.id));
     }));
-    void structures;
     return {
       employees, existing, settings, holidays, attendance,
       structureMap, advances, recoveries, rules, visits,
@@ -132,6 +133,7 @@ export function PayrollPage() {
         performance: String(existingRow.performance_bonus),
         annual: String(existingRow.annual_bonus),
         other: String(existingRow.other_deductions),
+        recovery: String(existingRow.salary_advance_recovered),
         allowanceQty: qty,
         allowanceReason: reason,
       };
@@ -143,7 +145,7 @@ export function PayrollPage() {
     const qty: Record<string, string> = {};
     for (const [k, v] of Object.entries(derived)) qty[k] = String(v);
     return { paidDays: String(b.paidDays), performance: '0', annual: '0',
-             other: '0', allowanceQty: qty, allowanceReason: {} };
+             other: '0', recovery: '', allowanceQty: qty, allowanceReason: {} };
   }
 
   function editsFor(emp: Employee): RowEdits {
@@ -182,7 +184,7 @@ export function PayrollPage() {
     return emp
       ? defaultsFor(emp)
       : { paidDays: '0', performance: '0', annual: '0', other: '0',
-          allowanceQty: {}, allowanceReason: {} };
+          recovery: '', allowanceQty: {}, allowanceReason: {} };
   }
 
   function setEdit(empId: string, patch: Partial<RowEdits>) {
@@ -225,24 +227,50 @@ export function PayrollPage() {
     const structure = structureForMonth(structureMap.get(emp.id) ?? [], month);
     if (!structure) return null;
     const e = editsFor(emp);
-    const outstanding = round2(
-      (saGiven.get(emp.id) ?? 0) - (saRecovered.get(emp.id) ?? 0),
-    );
     const existingRow = payrollByEmployee.get(emp.id);
-    // If payroll already recorded a recovery for this month, keep that figure
-    // rather than recovering the same advance twice.
-    const recovery = existingRow
-      ? Number(existingRow.salary_advance_recovered)
-      : Math.max(0, outstanding);
+    // saRecovered spans every month, including any already recorded for THIS
+    // month. Add that back so editing this month's figure up or down is
+    // measured against the same outstanding balance either way.
+    const recoveredThisMonth = existingRow
+      ? Number(existingRow.salary_advance_recovered) : 0;
+    const outstanding = round2(
+      (saGiven.get(emp.id) ?? 0) - (saRecovered.get(emp.id) ?? 0) + recoveredThisMonth,
+    );
 
     // Allowances are a percentage of the PRORATED basic for the month.
     const proratedBasic = round2(structure.basic * (Math.min(Number(e.paidDays) || 0, dim) / dim));
     const allowanceLines = allowanceLinesFor(emp, proratedBasic);
     const allowancesTotal = round2(allowanceLines.reduce((t, l) => t + l.amount, 0));
 
+    const ptForMonth = month.getMonth() === 1
+      ? settings.pt_february : settings.pt_monthly;
+    // What the payroll would be with no recovery at all — the second ceiling.
+    const beforeRecovery = computePayroll({
+      structure,
+      paidDays: Number(e.paidDays) || 0,
+      daysInMonth: dim,
+      performanceBonus: Number(e.performance) || 0,
+      annualBonus: Number(e.annual) || 0,
+      allowancesTotal,
+      professionalTax: ptForMonth,
+      salaryAdvanceRecovered: 0,
+      otherDeductions: Number(e.other) || 0,
+    });
+
+    // Blank means "recover as much as this month allows"; a typed value is
+    // Admin's figure. Either way it is clamped by both ceilings.
+    const requested = e.recovery.trim() === ''
+      ? outstanding
+      : Number(e.recovery) || 0;
+    const recovery = capRecovery(requested, outstanding, beforeRecovery.net_salary);
+    const recoveryCap = capRecovery(
+      Number.MAX_SAFE_INTEGER, outstanding, beforeRecovery.net_salary);
+
     return {
       structure,
       recovery,
+      recoveryCap,
+      outstanding,
       allowanceLines,
       allowancesTotal,
       result: computePayroll({
@@ -252,7 +280,7 @@ export function PayrollPage() {
         performanceBonus: Number(e.performance) || 0,
         annualBonus: Number(e.annual) || 0,
         allowancesTotal,
-        professionalTax: month.getMonth() === 1 ? settings.pt_february : settings.pt_monthly,
+        professionalTax: ptForMonth,
         salaryAdvanceRecovered: recovery,
         otherDeductions: Number(e.other) || 0,
       }),
@@ -286,21 +314,18 @@ export function PayrollPage() {
         status: 'processed',
       });
 
-      // Record the salary-advance recovery once, against the oldest advance.
-      const alreadyRecorded = payrollByEmployee.has(emp.id);
-      if (!alreadyRecorded && computed.recovery > 0) {
-        const oldest = advances
-          .filter((a) => a.employee_id === emp.id)
-          .sort((a, b) => a.advance_date.localeCompare(b.advance_date))[0];
-        if (oldest) {
-          await salaryAdvanceApi.recordRecovery({
-            salary_advance_id: oldest.id,
-            employee_id: emp.id,
-            payroll_month: isoDate(monthStart(month)),
-            recovered_amount: computed.recovery,
-          });
-        }
-      }
+      // Keep the recovery ledger in step with the figure just saved. Re-saving
+      // a month with a corrected amount replaces the previous row rather than
+      // leaving the ledger and payroll.salary_advance_recovered to diverge.
+      const oldest = advances
+        .filter((a) => a.employee_id === emp.id)
+        .sort((a, b) => a.advance_date.localeCompare(b.advance_date))[0];
+      await salaryAdvanceApi.syncRecovery({
+        employee_id: emp.id,
+        payroll_month: isoDate(monthStart(month)),
+        salary_advance_id: oldest?.id ?? null,
+        recovered_amount: computed.recovery,
+      });
 
       toast.success(`Payroll saved for ${emp.first_name} ${emp.last_name}.`);
       q.reload();
@@ -556,7 +581,24 @@ export function PayrollPage() {
                   <td className="num">
                     {formatCurrency(month.getMonth() === 1 ? settings.pt_february : settings.pt_monthly)}
                   </td>
-                  <td className="num">{computed ? formatCurrency(computed.recovery) : '—'}</td>
+                  <td>
+                    {computed ? (
+                      <>
+                        <input className="cell-input" type="number" min="0" step="0.01"
+                          max={computed.recoveryCap}
+                          placeholder={String(computed.recoveryCap)}
+                          value={e.recovery} disabled={rowLocked}
+                          title={`Outstanding advance ${formatCurrency(computed.outstanding)};`
+                            + ` maximum recoverable this month ${formatCurrency(computed.recoveryCap)}`}
+                          onChange={(ev) => setEdit(emp.id, { recovery: ev.target.value })} />
+                        {computed.outstanding > 0 && (
+                          <div className="muted small">
+                            of {formatCurrency(computed.outstanding)}
+                          </div>
+                        )}
+                      </>
+                    ) : '—'}
+                  </td>
                   <td>
                     <input className="cell-input" type="number" min="0" step="0.01"
                       value={e.other} disabled={rowLocked}

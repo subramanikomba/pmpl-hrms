@@ -1,5 +1,6 @@
 /** Domain types mirroring the Supabase schema (Phase 1 spec). */
 import type { VisitStatus, VisitType } from '@/lib/visits';
+import type { AllowanceLine } from '@/lib/payroll';
 
 export type EmployeeStatus = 'active' | 'inactive';
 export type AttendanceStatus =
@@ -191,20 +192,12 @@ export interface PayrollRecord {
 }
 
 /** One configured allowance rule as applied to a specific payroll month. */
-export interface AllowanceLine {
-  rule_key: string;
-  description: string;
-  rate_percent: number;
-  /** The Count actually used for payroll — Admin's figure. */
-  quantity: number;
-  /**
-   * What the system derived from the records. Retained so a manual override
-   * stays visible after the fact; these Counts affect salary.
-   */
-  system_quantity?: number;
-  override_reason?: string | null;
-  amount: number;
-}
+/**
+ * Re-exported from lib/payroll so there is exactly one definition. It lived in
+ * both files and had already drifted once; payroll owns it because that is
+ * where the lines are built and priced.
+ */
+export type { AllowanceLine } from '@/lib/payroll';
 
 export interface CompanySettings {
   id: string;
