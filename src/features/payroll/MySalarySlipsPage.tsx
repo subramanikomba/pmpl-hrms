@@ -10,6 +10,8 @@ import {
 import { generatePdf, generatePdfPreview } from './slipDocument';
 import { PdfViewerModal } from './PdfViewerModal';
 import { Card } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { paymentStateFor } from '@/lib/payment';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -40,6 +42,9 @@ export function MySalarySlipsPage() {
     [employeeId, monthValue],
   );
 
+  // A slip is a record of a payment made, so it appears only once the
+  // payment has actually been recorded.
+  const slipReady = slip.data?.status === 'paid' && !!slip.data.payment_date;
   /** PDF only — employees receive a non-editable document. */
   async function download(kind: 'pdf') {
     const settings = refs.data;
@@ -76,25 +81,62 @@ export function MySalarySlipsPage() {
                 <p>Days paid: {slip.data.paid_days} / {slip.data.days_in_month}</p>
                 <p>Gross salary: {formatCurrency(slip.data.gross_salary)}</p>
                 <p>Total deductions: {formatCurrency(slip.data.total_deductions)}</p>
-                <p className="slip-net">
-                  Net salary payable: <strong>{formatCurrency(slip.data.net_salary)}</strong>
-                </p>
-                {slip.data.payment_date && (
-                  <p className="muted small">
-                    Paid on {formatDate(slip.data.payment_date)}
-                    {slip.data.payment_mode ? ` · ${slip.data.payment_mode}` : ''}
-                    {slip.data.cheque_utr ? ` · ${slip.data.cheque_utr}` : ''}
-                  </p>
-                )}
+                {(() => {
+                  // Paid only when a payment was actually recorded.
+                  const settings = refs.data;
+                  const p = slip.data!;
+                  if (!settings) return null;
+                  const dueDate = new Date(
+                    month.getFullYear(), month.getMonth() + 1,
+                    settings.salary_payment_day);
+                  const state = paymentStateFor({
+                    status: p.status, paymentDate: p.payment_date,
+                    dueDate, today: new Date(),
+                  });
+                  const paid = state === 'paid';
+                  return (
+                    <>
+                      <p className="slip-net">
+                        {paid ? 'Net salary paid' : 'Net salary payable'}:{' '}
+                        <strong>{formatCurrency(p.net_salary)}</strong>
+                        {state !== 'not_processed' && (
+                          <> <Badge tone={paid ? 'success'
+                            : state === 'overdue' ? 'danger' : 'warn'}>
+                            {paid ? 'Paid'
+                              : state === 'overdue' ? 'Payment overdue' : 'Payable'}
+                          </Badge></>
+                        )}
+                      </p>
+                      {paid ? (
+                        <>
+                          <p>Payment date: {formatDate(p.payment_date)}</p>
+                          {p.payment_mode && <p>Payment mode: {p.payment_mode}</p>}
+                          {p.cheque_utr && <p>Reference: {p.cheque_utr}</p>}
+                        </>
+                      ) : state !== 'not_processed' && (
+                        <p className={state === 'overdue' ? 'error-text' : undefined}>
+                          Payment due date: {formatDate(dueDate)}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Employees get only a View action. The viewer itself provides
                   Download PDF and Close, so no separate download button is
                   offered here. Word (an editable format) is never offered. */}
-              <div className="row-end gap">
-                <Button variant="primary" disabled={busy}
-                  onClick={() => setViewing(true)}>View</Button>
-              </div>
+              {slipReady ? (
+                <div className="row-end gap">
+                  <Button variant="primary" disabled={busy}
+                    onClick={() => setViewing(true)}>View</Button>
+                </div>
+              ) : (
+                <p className="callout-warn">
+                  Your salary slip for {formatMonth(month)} will be available
+                  once the payment has been recorded.
+                </p>
+              )}
             </>
           ) : (
             <p className="callout-warn">
@@ -104,7 +146,7 @@ export function MySalarySlipsPage() {
           )}
       </Card>
 
-      {viewing && employee && refs.data && slip.data && (
+      {viewing && slipReady && employee && refs.data && slip.data && (
         <PdfViewerModal
           title={`Salary slip — ${formatMonth(month)}`}
           build={() => generatePdfPreview({

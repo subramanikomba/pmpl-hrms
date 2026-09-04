@@ -14,7 +14,9 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Select, TextInput } from '@/components/ui/Field';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import type { CompanyExpense, LedgerRow } from '@/types/db';
+import type { CompanyExpense, Employee, LedgerRow } from '@/types/db';
+
+type Tab = 'ledger' | 'summary';
 
 export function CompanyAdvancePage() {
   const { employee } = useAuth();
@@ -26,6 +28,7 @@ export function CompanyAdvancePage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [accounting, setAccounting] = useState<CompanyExpense | null>(null);
+  const [tab, setTab] = useState<Tab>('ledger');
 
   const emps = useQuery(() => employeesApi.listActive(), []);
   const ledger = useQuery(
@@ -116,6 +119,25 @@ export function CompanyAdvancePage() {
         subtitle="Company money given to employees, and expenses accounted against it"
       />
 
+      <div className="tabbar" role="tablist" aria-label="Advance and expense views">
+        <button
+          role="tab" aria-selected={tab === 'ledger'}
+          className={`tab ${tab === 'ledger' ? 'is-active' : ''}`}
+          onClick={() => setTab('ledger')}
+        >
+          Employee ledger
+        </button>
+        <button
+          role="tab" aria-selected={tab === 'summary'}
+          className={`tab ${tab === 'summary' ? 'is-active' : ''}`}
+          onClick={() => setTab('summary')}
+        >
+          Advance &amp; expense summary
+        </button>
+      </div>
+
+      {tab === 'summary' ? <AdvanceExpenseSummary /> : (
+      <>
       <Card title="Give a company advance">
         <div className="form-grid-2">
           <Select label="Employee" value={employeeId}
@@ -201,7 +223,118 @@ export function CompanyAdvancePage() {
                 empty="No advances or accounted expenses for this employee yet." />}
         </Card>
       )}
+      </>
+      )}
     </>
+  );
+}
+
+/* ── Company-wide advance & expense summary ────────────────────
+ * A roll-up of the SAME company_advance_ledger view the employee ledger
+ * uses, so both screens can never disagree. Pending claims are counted
+ * separately: they are not approved, so they do not touch the balance.
+ */
+interface SummaryRow {
+  employee: Employee;
+  given: number;
+  accounted: number;
+  outstanding: number;
+  pending: number;
+}
+
+function AdvanceExpenseSummary() {
+  const q = useQuery(async () => {
+    const [employees, ledger, pending] = await Promise.all([
+      employeesApi.listActive(),
+      advanceApi.ledgerAll(),
+      expenseApi.listAll({ status: 'pending' }),
+    ]);
+
+    const pendingCount = new Map<string, number>();
+    for (const e of pending) {
+      pendingCount.set(e.employee_id, (pendingCount.get(e.employee_id) ?? 0) + 1);
+    }
+
+    const rows: SummaryRow[] = employees.map((employee) => {
+      const mine = ledger.filter((l) => l.employee_id === employee.id);
+      const given = round2(mine.reduce((t, l) => t + Number(l.debit ?? 0), 0));
+      const accounted = round2(mine.reduce((t, l) => t + Number(l.credit ?? 0), 0));
+      return {
+        employee, given, accounted,
+        outstanding: round2(given - accounted),
+        pending: pendingCount.get(employee.id) ?? 0,
+      };
+    });
+    // Employees with nothing to report would only pad the table.
+    return rows.filter((r) => r.given > 0 || r.accounted > 0 || r.pending > 0);
+  }, []);
+
+  if (q.loading) return <Spinner label="Loading summary…" />;
+  if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
+
+  const rows = q.data ?? [];
+  const totals = rows.reduce(
+    (t, r) => ({
+      given: round2(t.given + r.given),
+      accounted: round2(t.accounted + r.accounted),
+      outstanding: round2(t.outstanding + r.outstanding),
+      pending: t.pending + r.pending,
+    }),
+    { given: 0, accounted: 0, outstanding: 0, pending: 0 },
+  );
+
+  const columns: Column<SummaryRow>[] = [
+    { key: 'emp', header: 'Employee',
+      cell: (r) => (
+        <>
+          <strong>{r.employee.employee_code}</strong>
+          <div className="emp-name">
+            {r.employee.first_name} {r.employee.last_name}
+          </div>
+        </>
+      ) },
+    { key: 'given', header: 'Advances given', align: 'right',
+      cell: (r) => formatCurrency(r.given) },
+    { key: 'acc', header: 'Expenses accounted', align: 'right',
+      cell: (r) => formatCurrency(r.accounted) },
+    { key: 'out', header: 'Outstanding', align: 'right',
+      cell: (r) => <strong>{formatCurrency(r.outstanding)}</strong> },
+    { key: 'pend', header: 'Pending claims', align: 'right',
+      cell: (r) => r.pending > 0
+        ? <Badge tone="warn">{r.pending}</Badge>
+        : <span className="muted">—</span> },
+  ];
+
+  return (
+    <Card title="Advance & expense summary — all employees">
+      <p className="muted small">
+        Balances come from the same ledger as the employee view. Pending claims
+        are awaiting approval and do not affect the outstanding balance.
+      </p>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.employee.id}
+        empty="No company advances or accounted expenses recorded yet."
+        footer={rows.length > 0 ? (
+          <tr>
+            <td><strong>Total</strong></td>
+            <td style={{ textAlign: 'right' }}>
+              <strong>{formatCurrency(totals.given)}</strong>
+            </td>
+            <td style={{ textAlign: 'right' }}>
+              <strong>{formatCurrency(totals.accounted)}</strong>
+            </td>
+            <td style={{ textAlign: 'right' }}>
+              <strong>{formatCurrency(totals.outstanding)}</strong>
+            </td>
+            <td style={{ textAlign: 'right' }}>
+              <strong>{totals.pending || '—'}</strong>
+            </td>
+          </tr>
+        ) : undefined}
+      />
+    </Card>
   );
 }
 

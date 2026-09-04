@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { TextArea, TextInput } from '@/components/ui/Field';
+import { TimeInput } from '@/components/ui/TimeInput';
 import { DataTable } from '@/components/ui/DataTable';
 import type { CompanySettings } from '@/types/db';
 
@@ -53,6 +54,7 @@ export function SettingsPage() {
         pt_february: Number(s.pt_february),
         salary_payment_day: Number(s.salary_payment_day),
         working_days: s.working_days ?? [1, 2, 3, 4, 5, 6],
+        attendance_cutoff_time: s.attendance_cutoff_time,
       });
       toast.success('Company settings saved.');
       setForm(null); q.reload();
@@ -96,10 +98,16 @@ export function SettingsPage() {
           <TextInput label="Professional tax — February (₹)" type="number"
             value={String(s.pt_february)} onChange={(e) => set('pt_february', Number(e.target.value))} />
         </div>
-        <TextInput label="Salary payment day (of the following month)" type="number"
-          min="1" max="28" value={String(s.salary_payment_day)}
-          onChange={(e) => set('salary_payment_day', Number(e.target.value))}
-          hint="Payroll for a month locks after this day passes." />
+        <div className="form-grid-2">
+          <TextInput label="Salary payment day (of the following month)" type="number"
+            min="1" max="28" value={String(s.salary_payment_day)}
+            onChange={(e) => set('salary_payment_day', Number(e.target.value))}
+            hint="Payroll for a month locks after this day passes." />
+          <TimeInput label="Attendance cutoff (end of day)"
+            value={(s.attendance_cutoff_time ?? '19:00').slice(0, 5)}
+            onChange={(v: string) => set('attendance_cutoff_time', v || '19:00')}
+            hint="After this time, a working day with no attendance record is raised to Admin as Attendance Not Marked. Set 11:59 PM to allow the whole calendar day." />
+        </div>
         <Button variant="primary" disabled={saving} onClick={() => void saveSettings()}>
           {saving ? 'Saving…' : 'Save settings'}
         </Button>

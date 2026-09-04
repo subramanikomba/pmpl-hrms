@@ -8,7 +8,8 @@ import { supabase } from './supabase';
 import { SUPABASE_URL } from './config';
 import { isoDate, monthStart } from './payroll';
 import type {
-  ClientLocation, ClientWithLocations,
+  ClientLocation, ClientWithLocations, AttendanceChangeRequest, AttendanceStatus,
+  OutdoorVisit,
   AllowanceRule, AttendanceRecord, ClientCompany, CompanyAdvance,
   CompanyExpense, CompanyHoliday, CompanySettings, Employee, LeaveRequest,
   LedgerRow, PayrollRecord, SalaryAdvance, SalaryAdvanceRecovery,
@@ -150,6 +151,142 @@ export const attendanceApi = {
   },
 };
 
+/* ── Attendance change requests (past Absent -> Present) ───────── */
+export const attendanceChangeApi = {
+  /** The employee's own requests, newest first. */
+  async listFor(employeeId: string): Promise<AttendanceChangeRequest[]> {
+    return unwrapList<AttendanceChangeRequest>(
+      await supabase.from('attendance_change_requests').select('*')
+        .eq('employee_id', employeeId).order('date', { ascending: false }),
+    );
+  },
+  async listAll(
+    status?: AttendanceChangeRequest['status'],
+  ): Promise<WithEmployee<AttendanceChangeRequest>[]> {
+    let q = supabase.from('attendance_change_requests')
+      .select(`*, employees!employee_id(${EMP_FIELDS})`)
+      .order('date', { ascending: false });
+    if (status) q = q.eq('status', status);
+    return unwrapList<WithEmployee<AttendanceChangeRequest>>(await q);
+  },
+  /**
+   * Raise a correction request. The permitted window and the past-date rule
+   * are enforced by RLS (acr_own_insert); this is the client-side twin.
+   */
+  async raise(input: {
+    employee_id: string; date: string;
+    from_status: AttendanceStatus | null; reason: string | null;
+  }): Promise<void> {
+    const { error } = await supabase.from('attendance_change_requests').insert({
+      ...input, to_status: 'present', status: 'pending',
+    });
+    if (error) throw new Error(error.message);
+  },
+  /** Withdraw an undecided request. */
+  async withdraw(id: string): Promise<void> {
+    const { error } = await supabase.from('attendance_change_requests')
+      .delete().eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
+  /**
+   * Record the Admin decision. Scoped to status='pending' so a request can
+   * never be decided twice. Writing the attendance row itself is done by the
+   * caller through attendanceApi.setStatus, under the admin RLS policy.
+   */
+  async decide(
+    id: string, status: 'approved' | 'rejected',
+    reviewerId: string, note?: string,
+  ): Promise<void> {
+    const { error } = await supabase.from('attendance_change_requests').update({
+      status, reviewed_by: reviewerId, review_note: note ?? null,
+      reviewed_at: new Date().toISOString(),
+    }).eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
+};
+
+/* ── Outdoor / site visits ─────────────────────────────────────── */
+/** Fields the client may write. The derived columns are computed in Postgres. */
+export type OutdoorVisitInput = Pick<
+  OutdoorVisit,
+  'employee_id' | 'start_date' | 'end_date' | 'start_time' | 'end_time'
+  | 'visit_type' | 'client_id' | 'location' | 'purpose'
+>;
+
+export const outdoorVisitApi = {
+  async listFor(employeeId: string): Promise<OutdoorVisit[]> {
+    return unwrapList<OutdoorVisit>(
+      await supabase.from('outdoor_visits').select('*')
+        .eq('employee_id', employeeId).order('start_date', { ascending: false }),
+    );
+  },
+  /** Admin view, optionally bounded to a period. */
+  async listAll(range?: { from?: string; to?: string; employeeId?: string }):
+  Promise<WithEmployee<OutdoorVisit>[]> {
+    let q = supabase.from('outdoor_visits')
+      .select(`*, employees!employee_id(${EMP_FIELDS})`)
+      .order('start_date', { ascending: false });
+    if (range?.from) q = q.gte('start_date', range.from);
+    if (range?.to) q = q.lte('start_date', range.to);
+    if (range?.employeeId) q = q.eq('employee_id', range.employeeId);
+    return unwrapList<WithEmployee<OutdoorVisit>>(await q);
+  },
+  /**
+   * Visits overlapping a payroll month, used to suggest allowance quantities.
+   * Bounded by start_date so a visit is counted in the month it began.
+   */
+  async listPending(): Promise<WithEmployee<OutdoorVisit>[]> {
+    return unwrapList<WithEmployee<OutdoorVisit>>(
+      await supabase.from('outdoor_visits')
+        .select(`*, employees!employee_id(${EMP_FIELDS})`)
+        .eq('status', 'pending').order('start_date', { ascending: false }),
+    );
+  },
+  async listForMonth(month: Date): Promise<OutdoorVisit[]> {
+    const from = isoDate(monthStart(month));
+    const to = isoDate(new Date(month.getFullYear(), month.getMonth() + 1, 0));
+    return unwrapList<OutdoorVisit>(
+      await supabase.from('outdoor_visits').select('*')
+        .gte('start_date', from).lte('start_date', to),
+    );
+  },
+  async create(input: OutdoorVisitInput): Promise<void> {
+    const { error } = await supabase.from('outdoor_visits')
+      .insert({ ...input, status: 'pending' });
+    if (error) throw new Error(error.message);
+  },
+  /**
+   * Admin decision. Scoped to status='pending' so a visit can never be
+   * decided twice, and the confirmed category is written with the decision.
+   */
+  async decide(
+    id: string, status: 'approved' | 'rejected', adminId: string,
+    visitType: OutdoorVisit['visit_type'], note?: string,
+  ): Promise<void> {
+    const { error } = await supabase.from('outdoor_visits').update({
+      status, visit_type: visitType, approved_by: adminId,
+      approved_at: new Date().toISOString(), review_note: note ?? null,
+    }).eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
+  /** Admin correction of a pending visit before approving it. */
+  async amend(id: string, patch: Partial<OutdoorVisitInput>): Promise<void> {
+    const { error } = await supabase.from('outdoor_visits')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+  },
+  async update(id: string, patch: Partial<OutdoorVisitInput>): Promise<void> {
+    const { error } = await supabase.from('outdoor_visits')
+      .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase.from('outdoor_visits').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+};
+
 /* ── Leave ─────────────────────────────────────────────────────── */
 export const leaveApi = {
   async listFor(employeeId: string): Promise<LeaveRequest[]> {
@@ -176,10 +313,13 @@ export const leaveApi = {
   async decide(
     id: string, status: 'approved' | 'rejected',
     reviewerId: string, note?: string,
+    /** Admin's paid/unpaid choice, recorded with the approval. */
+    leaveType?: LeaveRequest['leave_type'],
   ): Promise<void> {
     const { error } = await supabase.from('leave_requests').update({
       status, reviewed_by: reviewerId, review_note: note ?? null,
       reviewed_at: new Date().toISOString(),
+      ...(leaveType ? { leave_type: leaveType } : {}),
     }).eq('id', id);
     if (error) throw new Error(error.message);
   },
@@ -378,6 +518,16 @@ export const advanceApi = {
       await supabase.from('company_advances').select('*').order('advance_date'),
     );
   },
+  /**
+   * The same ledger view across every employee, for the company-wide summary.
+   * One query rather than one per employee, and the view stays the single
+   * source of truth for advance/expense balances.
+   */
+  async ledgerAll(): Promise<LedgerRow[]> {
+    return unwrapList<LedgerRow>(
+      await supabase.from('company_advance_ledger').select('*').order('txn_date'),
+    );
+  },
   async ledgerFor(employeeId: string): Promise<LedgerRow[]> {
     return unwrapList<LedgerRow>(
       await supabase.from('company_advance_ledger').select('*')
@@ -433,6 +583,16 @@ export const payrollApi = {
   async listForMonth(month: Date): Promise<PayrollRecord[]> {
     return unwrapList<PayrollRecord>(
       await supabase.from('payroll').select('*')
+        .eq('payroll_month', isoDate(monthStart(month))),
+    );
+  },
+  /** Same month view, with employee names, for admin payment summaries. */
+  async listForMonthWithEmployee(
+    month: Date,
+  ): Promise<WithEmployee<PayrollRecord>[]> {
+    return unwrapList<WithEmployee<PayrollRecord>>(
+      await supabase.from('payroll')
+        .select(`*, employees!employee_id(${EMP_FIELDS})`)
         .eq('payroll_month', isoDate(monthStart(month))),
     );
   },

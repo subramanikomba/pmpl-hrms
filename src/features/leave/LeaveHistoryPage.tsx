@@ -3,7 +3,7 @@ import { useQuery } from '@/lib/useQuery';
 import { leaveApi } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { Card } from '@/components/ui/Card';
-import { StatusBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -13,8 +13,20 @@ const columns: Column<LeaveRequest>[] = [
   { key: 'from', header: 'From', cell: (r) => formatDate(r.from_date) },
   { key: 'to', header: 'To', cell: (r) => formatDate(r.to_date) },
   { key: 'reason', header: 'Reason', cell: (r) => r.reason || '—' },
-  { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
-  { key: 'note', header: 'Reviewer note', cell: (r) => r.review_note || '—' },
+  { key: 'status', header: 'Status',
+    cell: (r) => (
+      <>
+        <StatusBadge status={r.status} />
+        {r.status === 'approved' && (
+          <> <Badge tone={r.leave_type === 'paid_leave' ? 'info' : 'warn'}>
+            {r.leave_type === 'paid_leave' ? 'Paid' : 'Unpaid'}
+          </Badge></>
+        )}
+      </>
+    ) },
+  // Any reason the Admin gave with the decision, so a rejection is not silent.
+  { key: 'note', header: "Admin's note",
+    cell: (r) => r.review_note || <span className="muted">—</span> },
 ];
 
 export function LeaveHistoryPage() {

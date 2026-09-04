@@ -3,11 +3,13 @@ import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
-  attendanceApi, holidayApi, leaveApi, advanceApi, expenseApi, settingsApi,
+  attendanceApi, attendanceChangeApi, holidayApi, leaveApi, advanceApi,
+  expenseApi, settingsApi,
 } from '@/lib/api';
-import { AttendanceMonthTable } from './AttendanceMonthTable';
+import { AttendanceMonthSection } from './AttendanceMonthSection';
 import { computePaidDays, isoDate, monthStart } from '@/lib/payroll';
 import { formatCurrency, formatDate, formatMonth } from '@/lib/format';
+import { Badge } from '@/components/ui/Badge';
 import { Card, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
@@ -19,6 +21,9 @@ export function EmployeeAttendancePage() {
   const { employee } = useAuth();
   const toast = useToast();
   const today = useMemo(() => new Date(), []);
+  // The dashboard is always the CURRENT month. The attendance grid owns its
+  // own month locally (see AttendanceMonthSection) so viewing a past month
+  // there never moves the summary or the payment details.
   const month = useMemo(() => monthStart(today), [today]);
   const employeeId = employee?.id ?? '';
 
@@ -29,23 +34,27 @@ export function EmployeeAttendancePage() {
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [records, holidays, leaves, ledger, expenses, settings] = await Promise.all([
-      attendanceApi.listForMonth(month, employeeId),
-      holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
-      leaveApi.listFor(employeeId),
-      advanceApi.ledgerFor(employeeId),
-      expenseApi.listFor(employeeId),
-      settingsApi.get(),
-    ]);
-    return { records, holidays, leaves, ledger, expenses, settings };
+    const [records, holidays, leaves, ledger, expenses, settings, requests] =
+      await Promise.all([
+        attendanceApi.listForMonth(month, employeeId),
+        holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
+        leaveApi.listFor(employeeId),
+        advanceApi.ledgerFor(employeeId),
+        expenseApi.listFor(employeeId),
+        settingsApi.get(),
+        attendanceChangeApi.listFor(employeeId),
+      ]);
+    return { records, holidays, leaves, ledger, expenses, settings, requests };
   }, [employeeId]);
 
   if (!employee) return null;
   if (q.loading) return <Spinner label="Loading your attendance…" />;
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
 
-  const { records = [], holidays = [], leaves = [], ledger = [], expenses = [] } = q.data ?? {};
-  const paymentDay = q.data?.settings.salary_payment_day ?? 10;
+  const {
+    records = [], holidays = [], leaves = [], ledger = [], expenses = [],
+    requests = [],
+  } = q.data ?? {};
   const holidayDates = new Set(holidays.map((h) => h.holiday_date));
   const breakdown = computePaidDays({ month, records, holidayDates, upTo: today,
     workingDays: q.data?.settings.working_days });
@@ -55,6 +64,7 @@ export function EmployeeAttendancePage() {
   const isSunday = today.getDay() === 0;
   const isHoliday = holidayDates.has(todayStr);
   const alreadyPresent = todayRecord?.status === 'present';
+  const pendingRequests = requests.filter((r) => r.status === 'pending');
 
   const outstandingAdvance = ledger.length > 0
     ? (ledger[ledger.length - 1]?.running_balance ?? 0)
@@ -123,16 +133,20 @@ export function EmployeeAttendancePage() {
             <div className="today-label">Status</div>
             <div className="today-status">
               {todayRecord ? <StatusBadge status={todayRecord.status} /> : todayLabel}
+              {alreadyPresent && (isSunday || isHoliday) && (
+                <> <Badge tone="info">
+                  Worked {isSunday ? 'weekly off' : 'holiday'}
+                </Badge></>
+              )}
             </div>
           </div>
           <Button
             variant="primary"
-            disabled={saving || isSunday || isHoliday || alreadyPresent}
+            disabled={saving || alreadyPresent}
             onClick={() => void markPresent()}
           >
             {alreadyPresent ? 'Marked Present'
-              : isSunday ? 'Weekly Off'
-              : isHoliday ? 'Company Holiday'
+              : isSunday || isHoliday ? 'Mark Present (working today)'
               : 'Mark Present'}
           </Button>
         </div>
@@ -165,9 +179,16 @@ export function EmployeeAttendancePage() {
         </Button>
       </Card>
 
-      {(pendingLeaves.length > 0 || pendingExpenses.length > 0) && (
+      {(pendingLeaves.length > 0 || pendingExpenses.length > 0
+        || pendingRequests.length > 0) && (
         <Card title="Awaiting approval">
           <ul className="plain-list">
+            {pendingRequests.map((r) => (
+              <li key={r.id}>
+                Attendance correction to Present on {formatDate(r.date)}
+                <StatusBadge status={r.status} />
+              </li>
+            ))}
             {pendingLeaves.map((l) => (
               <li key={l.id}>
                 Leave {formatDate(l.from_date)} – {formatDate(l.to_date)}
@@ -184,20 +205,10 @@ export function EmployeeAttendancePage() {
         </Card>
       )}
 
-      <Card className="mid" title={`Attendance — ${formatMonth(month)}`}>
-        <p className="muted small" style={{ marginBottom: 10 }}>
-          You can mark or correct Present/Absent for past dates in this month.
-          Sundays, company holidays and approved leave are set automatically.
-        </p>
-        <AttendanceMonthTable
-          employeeId={employeeId}
-          month={month}
-          records={records}
-          holidayDates={holidayDates}
-          paymentDay={paymentDay}
-          onChanged={q.reload}
-        />
-      </Card>
+      <AttendanceMonthSection
+        employeeId={employeeId}
+        workingDays={q.data?.settings.working_days}
+      />
     </>
   );
 }

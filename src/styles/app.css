@@ -546,3 +546,44 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
   color: var(--ink); font-weight: 600; }
 .weekday:not(.is-on) { color: var(--muted); }
 .weekday:hover { border-color: var(--field-line-strong); }
+
+/* PDF viewer: pages are rasterised to canvas (see PdfViewerModal) so mobile
+   browsers can paint them; the container scrolls vertically. */
+.doc-viewer { overflow: auto; -webkit-overflow-scrolling: touch; }
+.doc-pages { display: flex; flex-direction: column; gap: 10px; padding: 8px; }
+.doc-page { display: block; width: 100%; height: auto;
+  background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.18); border-radius: 2px; }
+
+/* Attendance correction requests stack inside one approvals card. */
+.approval-row { padding: 10px 0; border-top: 1px solid var(--line); }
+.approval-row:first-of-type { border-top: 0; }
+
+/* Collapsed payment reference list on the admin dashboard. */
+.payment-details { margin-top: 8px; }
+.payment-details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.payment-details summary:hover { color: var(--ink); }
+
+/* Override reason beneath an edited bonus Count. */
+.reason-input { margin-top: 4px; width: 100%; max-width: 240px; font-size: 12px; }
+
+/* Hour : Minute AM/PM entry — never a 24-hour clock. */
+.time-input { display: flex; align-items: center; gap: 6px; }
+.time-input select { flex: 0 0 auto; min-width: 68px; }
+.time-sep { color: var(--muted); font-weight: 600; }
+
+/* Positive counterpart to .callout-warn, used for the live visit summary. */
+.callout-ok { background: var(--ok-bg, #eef7ee); border-left: 3px solid var(--ok, #3f7d3f);
+  padding: 8px 10px; border-radius: 4px; font-size: 13px; margin: 8px 0; }
+
+/* Payment status block on the salary slip screens. */
+.payment-block { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* "Not marked" is deliberately neutral — it is not Absent. */
+.cell-unmarked { background: var(--line); color: var(--muted); }
+
+/* Date/month/time fields: keep them narrow so the picker icon sits next to
+   the value, and the native popup opens beside it rather than far from the
+   cursor. A click anywhere in the field opens the picker (see TextInput). */
+.input-picker { max-width: 220px; cursor: pointer; }
+.input-picker::-webkit-calendar-picker-indicator { cursor: pointer; margin-left: 4px; }
+@media (max-width: 700px) { .input-picker { max-width: 100%; } }

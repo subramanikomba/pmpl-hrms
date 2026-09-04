@@ -8,6 +8,7 @@ const EMPLOYEE_NAV: NavItem[] = [
   { to: '/attendance', label: 'Attendance' },
   { to: '/leave', label: 'Leave' },
   { to: '/expenses', label: 'Expenses' },
+  { to: '/outdoor-visits', label: 'Outdoor Visits' },
   { to: '/salary-slips', label: 'Salary Slips' },
 ];
 
@@ -15,7 +16,7 @@ const ADMIN_PRIMARY: NavItem[] = [
   { to: '/admin', label: 'Dashboard' },
   { to: '/admin/employees', label: 'Employees' },
   { to: '/admin/attendance', label: 'Attendance' },
-  { to: '/admin/leave', label: 'Leave' },
+  { to: '/admin/leave', label: 'Approvals' },
   { to: '/admin/payroll', label: 'Payroll' },
   { to: '/admin/salary-slips', label: 'Salary Slips' },
 ];
@@ -29,6 +30,7 @@ const ADMIN_MORE_GROUPS: NavGroup[] = [
     items: [
       { to: '/admin/expenses', label: 'Expense Approvals' },
       { to: '/admin/expense-reports', label: 'Expense Reports' },
+      { to: '/admin/outdoor-visits', label: 'Outdoor Visits' },
       { to: '/admin/company-advance', label: 'Company Advance & Expense Ledger' },
     ],
   },

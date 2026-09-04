@@ -4,6 +4,7 @@ import { payrollApi } from '@/lib/api';
 import { formatCurrency, formatMonth } from '@/lib/format';
 import { round2 } from '@/lib/payroll';
 import { Card } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Select } from '@/components/ui/Field';
@@ -12,7 +13,25 @@ import { DataTable } from '@/components/ui/DataTable';
 interface MonthRow {
   month: string; count: number; gross: number;
   pt: number; sa: number; other: number; net: number;
+  /** Employees whose payment has actually been recorded, and their total. */
+  paidCount: number; paidAmount: number;
 }
+
+/**
+ * Company-level payment position for a payroll month. Paid means the payment
+ * was actually recorded — never that payroll was merely processed.
+ */
+function monthPaymentStatus(m: MonthRow): 'paid' | 'partial' | 'unpaid' {
+  if (m.count > 0 && m.paidCount === m.count) return 'paid';
+  return m.paidCount === 0 ? 'unpaid' : 'partial';
+}
+
+const PAY_LABEL = {
+  paid: 'Fully paid', partial: 'Partially paid', unpaid: 'Payable',
+} as const;
+const PAY_TONE = {
+  paid: 'success', partial: 'warn', unpaid: 'neutral-alt',
+} as const;
 interface EmpRow {
   id: string; label: string; designation: string; months: number;
   gross: number; pt: number; sa: number; net: number;
@@ -32,9 +51,14 @@ export function PayrollSummaryPage() {
 
   for (const r of rows) {
     const m = byMonth.get(r.payroll_month) ?? {
-      month: r.payroll_month, count: 0, gross: 0, pt: 0, sa: 0, other: 0, net: 0,
+      month: r.payroll_month, count: 0, gross: 0, pt: 0, sa: 0, other: 0,
+      net: 0, paidCount: 0, paidAmount: 0,
     };
     m.count += 1;
+    if (r.status === 'paid' && r.payment_date) {
+      m.paidCount += 1;
+      m.paidAmount += Number(r.net_salary);
+    }
     m.gross += Number(r.gross_salary);
     m.pt += Number(r.professional_tax);
     m.sa += Number(r.salary_advance_recovered);
@@ -64,7 +88,8 @@ export function PayrollSummaryPage() {
     gross: round2(t.gross + m.gross), pt: round2(t.pt + m.pt),
     sa: round2(t.sa + m.sa), other: round2(t.other + m.other),
     net: round2(t.net + m.net),
-  }), { gross: 0, pt: 0, sa: 0, other: 0, net: 0 });
+    outstanding: round2(t.outstanding + (m.net - m.paidAmount)),
+  }), { gross: 0, pt: 0, sa: 0, other: 0, net: 0, outstanding: 0 });
 
   const years = Array.from({ length: 5 }, (_, i) => defaultFy - i);
 
@@ -98,6 +123,21 @@ export function PayrollSummaryPage() {
                     { key: 'other', header: 'Other ded.', align: 'right', cell: (m: MonthRow) => formatCurrency(m.other) },
                     { key: 'net', header: 'Net payable', align: 'right',
                       cell: (m: MonthRow) => <strong>{formatCurrency(m.net)}</strong> },
+                    { key: 'status', header: 'Status', align: 'right',
+                      cell: (m: MonthRow) => {
+                        const st = monthPaymentStatus(m);
+                        return (
+                          <>
+                            <Badge tone={PAY_TONE[st]}>{PAY_LABEL[st]}</Badge>
+                            {st === 'partial' && (
+                              <div className="muted small">
+                                {m.paidCount} of {m.count} paid ·{' '}
+                                {formatCurrency(m.net - m.paidAmount)} outstanding
+                              </div>
+                            )}
+                          </>
+                        );
+                      } },
                   ]}
                   rows={monthRows}
                   rowKey={(m) => m.month}
@@ -109,6 +149,13 @@ export function PayrollSummaryPage() {
                       <td style={{ textAlign: 'right' }}>{formatCurrency(totals.sa)}</td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(totals.other)}</td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(totals.net)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {totals.outstanding > 0
+                          ? <span className="muted small">
+                              {formatCurrency(totals.outstanding)} outstanding
+                            </span>
+                          : <Badge tone="success">Fully paid</Badge>}
+                      </td>
                     </tr>
                   }
                 />

@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import { employeesApi, payrollApi, settingsApi } from '@/lib/api';
+import { Badge } from '@/components/ui/Badge';
+import { paymentStateFor } from '@/lib/payment';
 import { monthStart } from '@/lib/payroll';
-import { formatCurrency, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
+import { formatCurrency, formatDate, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
 import { generateDocx, generatePdf, generatePdfPreview } from './slipDocument';
 import { PdfViewerModal } from './PdfViewerModal';
 import { Card } from '@/components/ui/Card';
@@ -33,6 +35,10 @@ export function SalarySlipsPage() {
     [employeeId, monthValue],
   );
 
+  // A salary slip is a record of a payment made, so it is only issued once
+  // the payment has actually been recorded — not merely processed.
+  const slipReady = preview.data?.status === 'paid'
+    && !!preview.data.payment_date;
   // Everything the generator needs, or null when the selection is incomplete.
   const slipData = (() => {
     const employee = refs.data?.employees.find((e) => e.id === employeeId);
@@ -92,9 +98,52 @@ export function SalarySlipsPage() {
                 <p>Paid days: {preview.data.paid_days} / {preview.data.days_in_month}</p>
                 <p>Gross: {formatCurrency(preview.data.gross_salary)}</p>
                 <p>Deductions: {formatCurrency(preview.data.total_deductions)}</p>
-                <p className="slip-net">
-                  Net payable: <strong>{formatCurrency(preview.data.net_salary)}</strong>
-                </p>
+                {(() => {
+                  // Payment status comes from the payment record, never from
+                  // payroll being calculated, finalised or a slip generated.
+                  const settings = refs.data?.settings;
+                  if (!settings) return null;
+                  const dueDate = new Date(
+                    month.getFullYear(), month.getMonth() + 1,
+                    settings.salary_payment_day);
+                  const state = paymentStateFor({
+                    status: preview.data.status,
+                    paymentDate: preview.data.payment_date,
+                    dueDate,
+                    today: new Date(),
+                  });
+                  const paid = state === 'paid';
+                  return (
+                    <>
+                      <p className="slip-net">
+                        {paid ? 'Net salary paid' : 'Net salary payable'}:{' '}
+                        <strong>{formatCurrency(preview.data.net_salary)}</strong>
+                        {state !== 'not_processed' && (
+                          <> <Badge tone={paid ? 'success'
+                            : state === 'overdue' ? 'danger' : 'warn'}>
+                            {paid ? 'Paid'
+                              : state === 'overdue' ? 'Payment overdue' : 'Payable'}
+                          </Badge></>
+                        )}
+                      </p>
+                      {paid ? (
+                        <>
+                          <p>Payment date: {formatDate(preview.data.payment_date)}</p>
+                          {preview.data.payment_mode && (
+                            <p>Payment mode: {preview.data.payment_mode}</p>
+                          )}
+                          {preview.data.cheque_utr && (
+                            <p>Reference: {preview.data.cheque_utr}</p>
+                          )}
+                        </>
+                      ) : state !== 'not_processed' && (
+                        <p className={state === 'overdue' ? 'error-text' : undefined}>
+                          Payment due date: {formatDate(dueDate)}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <p className="callout-warn">
@@ -104,12 +153,18 @@ export function SalarySlipsPage() {
             )
         )}
 
+        {preview.data && !slipReady && (
+          <p className="callout-warn">
+            The salary slip becomes available once this month's payment has been
+            recorded. Record the payment from the Payroll screen.
+          </p>
+        )}
         <div className="row-end gap">
-          <Button variant="secondary" disabled={busy || !preview.data}
+          <Button variant="secondary" disabled={busy || !slipReady}
             onClick={() => setViewing(true)}>View</Button>
-          <Button variant="secondary" disabled={busy || !preview.data}
+          <Button variant="secondary" disabled={busy || !slipReady}
             onClick={() => void download('docx')}>Download Word</Button>
-          <Button variant="primary" disabled={busy || !preview.data}
+          <Button variant="primary" disabled={busy || !slipReady}
             onClick={() => void download('pdf')}>Download PDF</Button>
         </div>
       </Card>

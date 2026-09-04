@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
   isoDate, professionalTaxFor, round2, structureForMonth, employeeMayMark,
+  needsPresentApproval, deriveBonusCounts, qualifiesForAttendanceBonus,
+  findUnmarkedAttendance,
 } from './payroll';
 
 const STRUCT = {
@@ -95,6 +97,33 @@ describe('computePaidDays', () => {
   it('defaults to Mon–Sat when no calendar is given', () => {
     const b = computePaidDays({ month, records: [], holidayDates: new Set() });
     expect(b.weeklyOffs).toBe(5); // Sundays only
+  });
+
+  it('counts a Sunday worked without paying the day twice', () => {
+    const worked = computePaidDays({
+      month,
+      records: [{ date: '2026-08-02', status: 'present' }], // a Sunday
+      holidayDates: new Set(),
+    });
+    const idle = computePaidDays({ month, records: [], holidayDates: new Set() });
+    expect(worked.workedWeeklyOffs).toBe(1);
+    expect(worked.workedOffDays).toBe(1);
+    expect(worked.weeklyOffs).toBe(idle.weeklyOffs);
+    expect(worked.paidDays).toBe(idle.paidDays);
+  });
+
+  it('counts a company holiday worked without paying the day twice', () => {
+    const worked = computePaidDays({
+      month,
+      records: [{ date: '2026-08-15', status: 'present' }],
+      holidayDates: new Set(['2026-08-15']),
+    });
+    const idle = computePaidDays({
+      month, records: [], holidayDates: new Set(['2026-08-15']),
+    });
+    expect(worked.workedHolidays).toBe(1);
+    expect(worked.companyHolidays).toBe(idle.companyHolidays);
+    expect(worked.paidDays).toBe(idle.paidDays);
   });
 
   it('never counts a Sunday as absent even without a record', () => {
@@ -240,27 +269,44 @@ describe('employeeMayMark', () => {
   const now = new Date(2026, 7, 15);
 
   it('allows today', () => {
-    expect(employeeMayMark(new Date(2026, 7, 15), 10, now)).toBe(true);
+    expect(employeeMayMark(new Date(2026, 7, 15), now)).toBe(true);
   });
   it('allows past dates in the current month', () => {
-    expect(employeeMayMark(new Date(2026, 7, 1), 10, now)).toBe(true);
-    expect(employeeMayMark(new Date(2026, 7, 14), 10, now)).toBe(true);
+    expect(employeeMayMark(new Date(2026, 7, 1), now)).toBe(true);
+    expect(employeeMayMark(new Date(2026, 7, 14), now)).toBe(true);
   });
   it('blocks future dates', () => {
-    expect(employeeMayMark(new Date(2026, 7, 16), 10, now)).toBe(false);
-    expect(employeeMayMark(new Date(2026, 8, 1), 10, now)).toBe(false);
+    expect(employeeMayMark(new Date(2026, 7, 16), now)).toBe(false);
+    expect(employeeMayMark(new Date(2026, 8, 1), now)).toBe(false);
   });
-  it('blocks the previous month once the payment day has arrived', () => {
-    // 15th >= payment day 10 -> July is closed
-    expect(employeeMayMark(new Date(2026, 6, 20), 10, now)).toBe(false);
+  it('blocks the previous month after the 5th', () => {
+    expect(employeeMayMark(new Date(2026, 6, 20), now)).toBe(false);
+    // The 6th is the first day the previous month is closed.
+    expect(employeeMayMark(new Date(2026, 6, 20), new Date(2026, 7, 6))).toBe(false);
   });
-  it('allows the previous month before the payment day', () => {
-    const early = new Date(2026, 7, 5); // 5th < payment day 10
-    expect(employeeMayMark(new Date(2026, 6, 20), 10, early)).toBe(true);
+  it('allows the previous month up to and including the 5th', () => {
+    expect(employeeMayMark(new Date(2026, 6, 20), new Date(2026, 7, 1))).toBe(true);
+    expect(employeeMayMark(new Date(2026, 6, 20), new Date(2026, 7, 5))).toBe(true);
+  });
+  it('rolls over the year boundary without special-casing', () => {
+    // 3 Jan 2027 -> December 2026 still open; 6 Jan -> closed.
+    expect(employeeMayMark(new Date(2026, 11, 20), new Date(2027, 0, 3))).toBe(true);
+    expect(employeeMayMark(new Date(2026, 11, 20), new Date(2027, 0, 6))).toBe(false);
   });
   it('blocks months older than the previous month', () => {
     const early = new Date(2026, 7, 5);
-    expect(employeeMayMark(new Date(2026, 5, 20), 10, early)).toBe(false);
+    expect(employeeMayMark(new Date(2026, 5, 20), early)).toBe(false);
+  });
+});
+
+describe('needsPresentApproval', () => {
+  const now = new Date(2026, 7, 15);
+  it('marks today directly', () => {
+    expect(needsPresentApproval(new Date(2026, 7, 15), now)).toBe(false);
+  });
+  it('requires approval for any earlier date', () => {
+    expect(needsPresentApproval(new Date(2026, 7, 14), now)).toBe(true);
+    expect(needsPresentApproval(new Date(2026, 6, 30), now)).toBe(true);
   });
 });
 
@@ -331,5 +377,107 @@ describe('computeAllowanceAmount', () => {
   it('scales with the prorated basic, not the full salary', () => {
     // half a month worked -> half the allowance base
     expect(computeAllowanceAmount(15500, 2.5, 2)).toBe(775);
+  });
+});
+
+describe('qualifiesForAttendanceBonus', () => {
+  const base = {
+    present: 26, paidLeave: 0, unpaidLeave: 0, weeklyOffs: 5,
+    companyHolidays: 0, absent: 0, paidDays: 31, workedWeeklyOffs: 0,
+    workedHolidays: 0, workedOffDays: 0,
+  };
+  it('qualifies with no absence and no leave', () => {
+    expect(qualifiesForAttendanceBonus(base)).toBe(true);
+  });
+  it('does not qualify with an absent day', () => {
+    expect(qualifiesForAttendanceBonus({ ...base, absent: 1 })).toBe(false);
+  });
+  it('does not qualify when leave was taken', () => {
+    expect(qualifiesForAttendanceBonus({ ...base, paidLeave: 2 })).toBe(false);
+    expect(qualifiesForAttendanceBonus({ ...base, unpaidLeave: 1 })).toBe(false);
+  });
+});
+
+describe('deriveBonusCounts', () => {
+  const breakdown = {
+    present: 26, paidLeave: 0, unpaidLeave: 0, weeklyOffs: 5,
+    companyHolidays: 0, absent: 0, paidDays: 31, workedWeeklyOffs: 2,
+    workedHolidays: 0, workedOffDays: 2,
+  };
+
+  it('derives every rule from the records', () => {
+    const c = deriveBonusCounts({
+      breakdown, dayVisitDays: 3, overnightVisits: 1 });
+    expect(c.attendance_bonus).toBe(1);
+    expect(c.emergency_weekend).toBe(2);
+    expect(c.outdoor_day).toBe(3);
+    expect(c.outdoor_overnight).toBe(1);
+    // No automated record exists for site completion.
+    expect(c.site_completion).toBe(0);
+  });
+
+  it('surfaces both weekend and outdoor counts rather than choosing', () => {
+    // A Sunday worked during an outdoor visit appears in BOTH counts. The
+    // system must not silently drop one — Admin decides.
+    const c = deriveBonusCounts({
+      breakdown: { ...breakdown, workedOffDays: 1 },
+      dayVisitDays: 1, overnightVisits: 0,
+    });
+    expect(c.emergency_weekend).toBe(1);
+    expect(c.outdoor_day).toBe(1);
+  });
+
+  it('gives zero attendance bonus when the month was not full', () => {
+    const c = deriveBonusCounts({
+      breakdown: { ...breakdown, absent: 2 },
+      dayVisitDays: 0, overnightVisits: 0,
+    });
+    expect(c.attendance_bonus).toBe(0);
+  });
+});
+
+describe('findUnmarkedAttendance', () => {
+  const month = new Date(2026, 8, 1); // September 2026
+  const args = {
+    employeeIds: ['e1'],
+    month,
+    holidayDates: new Set<string>(),
+    workingDays: [1, 2, 3, 4, 5, 6],
+    cutoffTime: '19:00',
+  };
+
+  it('reports working days with no record', () => {
+    // 1-3 Sep 2026 are Tue-Thu; now is 3 Sep after cutoff.
+    const out = findUnmarkedAttendance({
+      ...args, records: [{ employee_id: 'e1', date: '2026-09-01' }],
+      now: new Date(2026, 8, 3, 20, 0),
+    });
+    expect(out.map((x) => x.date)).toEqual(['2026-09-02', '2026-09-03']);
+  });
+
+  it('excludes today before the cutoff', () => {
+    const out = findUnmarkedAttendance({
+      ...args, records: [], now: new Date(2026, 8, 1, 10, 0),
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('includes today once the cutoff has passed', () => {
+    const out = findUnmarkedAttendance({
+      ...args, records: [], now: new Date(2026, 8, 1, 19, 30),
+    });
+    expect(out).toEqual([{ employeeId: 'e1', date: '2026-09-01' }]);
+  });
+
+  it('never reports Sundays or company holidays', () => {
+    const out = findUnmarkedAttendance({
+      ...args,
+      holidayDates: new Set(['2026-09-02']),
+      records: [],
+      now: new Date(2026, 8, 7, 20, 0),
+    });
+    // 6 Sep is a Sunday; 2 Sep is a holiday. Neither may appear.
+    expect(out.some((x) => x.date === '2026-09-06')).toBe(false);
+    expect(out.some((x) => x.date === '2026-09-02')).toBe(false);
   });
 });

@@ -8,6 +8,8 @@ import { NotFound } from '@/routes/NotFound';
 import { EmployeeAttendancePage } from '@/features/attendance/EmployeeAttendancePage';
 import { LeaveHistoryPage } from '@/features/leave/LeaveHistoryPage';
 import { MyExpensesPage } from '@/features/expenses/MyExpensesPage';
+import { OutdoorVisitsPage } from '@/features/visits/OutdoorVisitsPage';
+import { OutdoorVisitReportPage } from '@/features/visits/OutdoorVisitReportPage';
 
 import { AdminDashboardPage } from '@/features/dashboard/AdminDashboardPage';
 import { EmployeesPage } from '@/features/employees/EmployeesPage';
@@ -38,6 +40,7 @@ export const router = createHashRouter([
       { path: 'attendance', element: <EmployeeAttendancePage /> },
       { path: 'leave', element: <LeaveHistoryPage /> },
       { path: 'expenses', element: <MyExpensesPage /> },
+      { path: 'outdoor-visits', element: <OutdoorVisitsPage /> },
       { path: 'salary-slips', element: <MySalarySlipsPage /> },
 
       // Admin
@@ -47,6 +50,7 @@ export const router = createHashRouter([
       { path: 'admin/leave', element: <RequireAuth adminOnly><LeaveApprovalPage /></RequireAuth> },
       { path: 'admin/expenses', element: <RequireAuth adminOnly><ExpenseApprovalPage /></RequireAuth> },
       { path: 'admin/expense-reports', element: <RequireAuth adminOnly><ExpenseReportsPage /></RequireAuth> },
+      { path: 'admin/outdoor-visits', element: <RequireAuth adminOnly><OutdoorVisitReportPage /></RequireAuth> },
       { path: 'admin/company-advance', element: <RequireAuth adminOnly><CompanyAdvancePage /></RequireAuth> },
       { path: 'admin/salary-advance', element: <RequireAuth adminOnly><SalaryAdvancePage /></RequireAuth> },
       { path: 'admin/payroll', element: <RequireAuth adminOnly><PayrollWorkspace /></RequireAuth> },

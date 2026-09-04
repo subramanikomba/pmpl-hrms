@@ -7,12 +7,13 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   present: 'success', approved: 'success', paid: 'success', active: 'success',
   pending: 'warn', draft: 'warn',
   rejected: 'danger', absent: 'danger', inactive: 'danger',
-  paid_leave: 'info', processed: 'info', advance: 'info',
+  paid_leave: 'info', unpaid_leave: 'warn', processed: 'info', advance: 'info',
   weekly_off: 'neutral-alt', company_holiday: 'neutral-alt', expense: 'neutral-alt',
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  present: 'Present', paid_leave: 'Paid Leave', weekly_off: 'Weekly Off',
+  present: 'Present', paid_leave: 'Paid Leave', unpaid_leave: 'Unpaid Leave',
+  weekly_off: 'Weekly Off',
   company_holiday: 'Holiday', absent: 'Absent',
   pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
   draft: 'Draft', processed: 'Processed', paid: 'Paid',

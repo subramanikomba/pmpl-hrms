@@ -3,15 +3,17 @@ import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
-  attendanceApi, employeesApi, holidayApi, payrollApi, rulesApi,
-  salaryAdvanceApi, salaryApi, settingsApi,
+  attendanceApi, employeesApi, holidayApi, outdoorVisitApi, payrollApi,
+  rulesApi, salaryAdvanceApi, salaryApi, settingsApi,
 } from '@/lib/api';
 import {
   computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth,
+  deriveBonusCounts, findUnmarkedAttendance,
   isPayrollMonthLocked, isoDate, monthStart, round2, structureForMonth,
   type AllowanceLine,
 } from '@/lib/payroll';
 import { formatCurrency, formatDate, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
+import { countVisitsForMonth } from '@/lib/visits';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
@@ -27,6 +29,8 @@ interface RowEdits {
   paidDays: string; performance: string; annual: string; other: string;
   /** rule_key -> quantity entered by Admin for this month. */
   allowanceQty: Record<string, string>;
+  /** Optional Admin note when a system-derived Count is overridden. */
+  allowanceReason: Record<string, string>;
 }
 
 export function PayrollPage() {
@@ -39,7 +43,13 @@ export function PayrollPage() {
   const [paying, setPaying] = useState<
     { record: PayrollRecord; employee: Employee } | null>(null);
   const [allowancesFor, setAllowancesFor] = useState<
-    { employee: Employee; proratedBasic: number } | null>(null);
+    {
+      employee: Employee; proratedBasic: number;
+      systemCounts: Record<string, number>;
+      /** Counts as they were when the modal opened, restored on Cancel. */
+      snapshotQty: Record<string, string>;
+      snapshotReason: Record<string, string>;
+    } | null>(null);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
   const dim = daysInMonth(month);
@@ -58,6 +68,9 @@ export function PayrollPage() {
         salaryAdvanceApi.recoveries(),
         rulesApi.list(),
       ]);
+    // Fetched separately, deliberately: outdoor visits only supply suggested
+    // allowance quantities and must not hold up the payroll figures.
+    const visits = await outdoorVisitApi.listForMonth(month);
     // Salary structures are fetched per employee (small team; keeps the
     // query simple and respects RLS without a custom view).
     const structureMap = new Map<string, SalaryStructure[]>();
@@ -67,7 +80,7 @@ export function PayrollPage() {
     void structures;
     return {
       employees, existing, settings, holidays, attendance,
-      structureMap, advances, recoveries, rules,
+      structureMap, advances, recoveries, rules, visits,
     };
   }, [monthValue]);
 
@@ -77,7 +90,7 @@ export function PayrollPage() {
 
   const {
     employees, existing, settings, holidays, attendance, structureMap,
-    advances, recoveries, rules,
+    advances, recoveries, rules, visits,
   } = q.data;
   const activeRules = rules.filter((r) => r.is_active);
 
@@ -97,36 +110,79 @@ export function PayrollPage() {
 
   function defaultsFor(emp: Employee): RowEdits {
     const existingRow = payrollByEmployee.get(emp.id);
+    // The Counts the records imply for THIS payroll month. Used to prefill,
+    // and to fill any rule a saved row has no line for yet — otherwise a
+    // draft saved before a visit was approved would keep showing 0.
+    const derived = systemCountsFor(emp);
+
     if (existingRow) {
       // Rehydrate the quantities that produced the saved allowance total.
       const detail = Array.isArray(existingRow.allowances_detail)
         ? existingRow.allowances_detail as AllowanceLine[] : [];
       const qty: Record<string, string> = {};
-      for (const line of detail) qty[line.rule_key] = String(line.quantity);
+      for (const [k, v] of Object.entries(derived)) qty[k] = String(v);
+      const reason: Record<string, string> = {};
+      // A saved line always wins — that is Admin's figure, including a 0.
+      for (const line of detail) {
+        qty[line.rule_key] = String(line.quantity);
+        if (line.override_reason) reason[line.rule_key] = line.override_reason;
+      }
       return {
         paidDays: String(existingRow.paid_days),
         performance: String(existingRow.performance_bonus),
         annual: String(existingRow.annual_bonus),
         other: String(existingRow.other_deductions),
         allowanceQty: qty,
+        allowanceReason: reason,
       };
     }
     const records = attendance.filter((a) => a.employee_id === emp.id);
     const b = computePaidDays({
       month, records, holidayDates, workingDays: settings.working_days });
+    // Prefill each Count from the records that exist for this month.
+    const qty: Record<string, string> = {};
+    for (const [k, v] of Object.entries(derived)) qty[k] = String(v);
     return { paidDays: String(b.paidDays), performance: '0', annual: '0',
-             other: '0', allowanceQty: {} };
+             other: '0', allowanceQty: qty, allowanceReason: {} };
   }
 
   function editsFor(emp: Employee): RowEdits {
     return edits[emp.id] ?? defaultsFor(emp);
   }
 
+  /**
+   * Sundays and company holidays the employee actually marked Present. Those
+   * days are already paid as offs, so they do not change Paid Days — they are
+   * the quantity for the Emergency / Weekend Service rule.
+   */
+  /**
+   * The system's derived Count for every bonus rule, for THIS payroll month.
+   * Attendance and weekend service come from attendance; the two outdoor
+   * counts come from APPROVED visits only. Always a starting point: Admin
+   * may override any of them below.
+   */
+  function systemCountsFor(emp: Employee): Record<string, number> {
+    const breakdown = computePaidDays({
+      month,
+      records: attendance.filter((a) => a.employee_id === emp.id),
+      holidayDates,
+      workingDays: settings.working_days,
+    });
+    const vc = countVisitsForMonth(
+      visits.filter((v) => v.employee_id === emp.id), month);
+    return deriveBonusCounts({
+      breakdown,
+      dayVisitDays: vc.dayVisitDays,
+      overnightVisits: vc.overnightVisits,
+    });
+  }
+
   function defaultsForId(empId: string): RowEdits {
     const emp = employees.find((x) => x.id === empId);
     return emp
       ? defaultsFor(emp)
-      : { paidDays: '0', performance: '0', annual: '0', other: '0', allowanceQty: {} };
+      : { paidDays: '0', performance: '0', annual: '0', other: '0',
+          allowanceQty: {}, allowanceReason: {} };
   }
 
   function setEdit(empId: string, patch: Partial<RowEdits>) {
@@ -146,16 +202,23 @@ export function PayrollPage() {
   /** Allowance lines from the configured rules and the Admin's quantities. */
   function allowanceLinesFor(emp: Employee, basic: number): AllowanceLine[] {
     const e = editsFor(emp);
+    const system = systemCountsFor(emp);
     return activeRules.map((rule) => {
       const quantity = Number(e.allowanceQty[rule.rule_key] ?? 0) || 0;
+      const systemQuantity = system[rule.rule_key] ?? 0;
       return {
         rule_key: rule.rule_key,
         description: rule.description,
         rate_percent: Number(rule.rate_percent),
         quantity,
+        // Kept even when equal, so a later reader can tell the saved Count
+        // was checked against the records rather than simply typed in.
+        system_quantity: systemQuantity,
+        override_reason: quantity !== systemQuantity
+          ? (e.allowanceReason[rule.rule_key]?.trim() || null) : null,
         amount: computeAllowanceAmount(basic, Number(rule.rate_percent), quantity),
       };
-    }).filter((l) => l.amount > 0);
+    });
   }
 
   function computeFor(emp: Employee) {
@@ -285,6 +348,30 @@ export function PayrollPage() {
         subtitle={`Monthly salary calculation — ${formatMonth(month)}`}
       />
 
+      {(() => {
+        // Unresolved Attendance Not Marked days would silently understate or
+        // overstate pay, so warn before payroll is finalised.
+        const exceptions = findUnmarkedAttendance({
+          employeeIds: employees.map((e) => e.id),
+          records: attendance,
+          month,
+          holidayDates,
+          workingDays: settings.working_days,
+          cutoffTime: settings.attendance_cutoff_time,
+          now: today,
+        });
+        return exceptions.length > 0 ? (
+          <Card title="Attendance not marked">
+            <p className="callout-warn">
+              {exceptions.length} attendance record
+              {exceptions.length === 1 ? ' is' : 's are'} still unresolved.
+              Please review before finalising payroll — these days are neither
+              Present nor Absent, which matters for daily-wage employees.
+            </p>
+          </Card>
+        ) : null;
+      })()}
+
       <Card title="Payroll month">
         <TextInput label="Month" type="month" value={monthValue}
           onChange={(e) => { setMonthValue(e.target.value); setEdits({}); }} />
@@ -306,17 +393,25 @@ export function PayrollPage() {
         return (
           <Modal open size="md"
             title={`Allowances — ${emp.first_name} ${emp.last_name}`}
-            onClose={() => setAllowancesFor(null)} dismissOnBackdrop={false}>
+            onClose={() => {
+              // Closing without Done behaves as Cancel.
+              setEdit(emp.id, {
+                allowanceQty: { ...allowancesFor.snapshotQty },
+                allowanceReason: { ...allowancesFor.snapshotReason },
+              });
+              setAllowancesFor(null);
+            }} dismissOnBackdrop={false}>
             <p className="muted small">
-              Rates come from Payroll Settings. Enter the quantity for this month;
-              each amount is that percentage of the prorated basic
-              ({formatCurrency(proratedBasic)}).
+              Rates come from Payroll Settings. Each Count is prefilled from
+              this month's records; edit any Count you need to. The Count you
+              save is the one payroll uses. Amount = rate × prorated basic
+              ({formatCurrency(proratedBasic)}) × Count.
             </p>
-            <table className="data-table">
+            <table className="data-table table-compact">
               <thead>
                 <tr>
                   <th>Rule</th><th className="num">Rate</th>
-                  <th>Quantity</th><th className="num">Amount</th>
+                  <th className="num">Count</th><th className="num">Calculation</th>
                 </tr>
               </thead>
               <tbody>
@@ -328,8 +423,8 @@ export function PayrollPage() {
                     <tr key={rule.rule_key}>
                       <td>{rule.description}</td>
                       <td className="num">{rule.rate_percent}%</td>
-                      <td>
-                        <input className="cell-input" type="number" min="0" step="0.5"
+                      <td className="num">
+                        <input className="cell-input" type="number" min="0" step="1"
                           value={ed.allowanceQty[rule.rule_key] ?? ''}
                           placeholder="0"
                           onChange={(ev) => setEdit(emp.id, {
@@ -350,6 +445,16 @@ export function PayrollPage() {
               <strong>{formatCurrency(computeFor(emp)?.allowancesTotal ?? 0)}</strong>
             </p>
             <div className="row-end gap">
+              <Button variant="secondary" onClick={() => {
+                // Restore the Counts as they were when the modal opened.
+                setEdit(emp.id, {
+                  allowanceQty: { ...allowancesFor.snapshotQty },
+                  allowanceReason: { ...allowancesFor.snapshotReason },
+                });
+                setAllowancesFor(null);
+              }}>
+                Cancel
+              </Button>
               <Button variant="primary" onClick={() => setAllowancesFor(null)}>
                 Done
               </Button>
@@ -422,6 +527,9 @@ export function PayrollPage() {
                             onClick={() => setAllowancesFor({
                               employee: emp,
                               proratedBasic: computed?.result.basic ?? 0,
+                              systemCounts: systemCountsFor(emp),
+                              snapshotQty: { ...editsFor(emp).allowanceQty },
+                              snapshotReason: { ...editsFor(emp).allowanceReason },
                             })}
                             title="Enter allowance quantities">
                             {(computed?.allowancesTotal ?? 0) > 0 ? 'edit' : 'add'}

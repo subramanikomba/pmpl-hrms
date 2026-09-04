@@ -1,8 +1,10 @@
 /** Domain types mirroring the Supabase schema (Phase 1 spec). */
+import type { VisitStatus, VisitType } from '@/lib/visits';
 
 export type EmployeeStatus = 'active' | 'inactive';
 export type AttendanceStatus =
-  | 'present' | 'paid_leave' | 'weekly_off' | 'company_holiday' | 'absent';
+  | 'present' | 'paid_leave' | 'unpaid_leave' | 'weekly_off'
+  | 'company_holiday' | 'absent';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type PayrollStatus = 'draft' | 'processed' | 'paid';
 
@@ -42,12 +44,63 @@ export interface AttendanceRecord {
   marked_by: string | null;
 }
 
+/**
+ * A past-dated request to change attendance to Present. Raised by the
+ * employee, decided by Admin; approval writes the attendance record.
+ */
+export interface AttendanceChangeRequest {
+  id: string;
+  employee_id: string;
+  date: string;
+  /** Status before the request; null when the day was never marked. */
+  from_status: AttendanceStatus | null;
+  to_status: 'present';
+  reason: string | null;
+  status: ApprovalStatus;
+  reviewed_by: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+/**
+ * A record of an outdoor / site visit. Carries NO money: reimbursement stays
+ * in company_expenses. This exists so allowance rules can be given real
+ * quantities (nights stayed, day visits, multiday visits).
+ *
+ * nights, day_count, is_overnight and is_multiday are generated columns in
+ * Postgres — derived from the dates once, never written by the client.
+ */
+export interface OutdoorVisit {
+  id: string;
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  /** Mandatory: the times are what distinguish day from overnight. */
+  start_time: string;
+  end_time: string;
+  visit_type: VisitType;
+  status: VisitStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  review_note: string | null;
+  client_id: string | null;
+  location: string;
+  purpose: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Generated in Postgres, per category — never both at once. */
+  nights: number;
+  day_count: number;
+  is_overnight: boolean;
+}
+
 export interface LeaveRequest {
   id: string;
   employee_id: string;
   from_date: string;
   to_date: string;
-  leave_type: 'paid_leave';
+  leave_type: 'paid_leave' | 'unpaid_leave';
   reason: string | null;
   status: ApprovalStatus;
   reviewed_by: string | null;
@@ -142,7 +195,14 @@ export interface AllowanceLine {
   rule_key: string;
   description: string;
   rate_percent: number;
+  /** The Count actually used for payroll — Admin's figure. */
   quantity: number;
+  /**
+   * What the system derived from the records. Retained so a manual override
+   * stays visible after the fact; these Counts affect salary.
+   */
+  system_quantity?: number;
+  override_reason?: string | null;
   amount: number;
 }
 
@@ -157,6 +217,8 @@ export interface CompanySettings {
   working_days: number[];
   pt_monthly: number;
   pt_february: number;
+  /** End-of-day cutoff for raising Attendance Not Marked exceptions. */
+  attendance_cutoff_time: string;
 }
 
 export interface CompanyHoliday {
