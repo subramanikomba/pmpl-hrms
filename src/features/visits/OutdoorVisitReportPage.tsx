@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
-import { employeesApi, outdoorVisitApi } from '@/lib/api';
+import { clientApi, employeesApi, outdoorVisitApi } from '@/lib/api';
 import { isoDate, monthStart } from '@/lib/payroll';
 import { countVisitsForMonth, to12Hour } from '@/lib/visits';
 import { formatDate, monthInputValue, parseMonthInput } from '@/lib/format';
@@ -30,17 +30,25 @@ export function OutdoorVisitReportPage() {
   const q = useQuery(async () => {
     const from = isoDate(monthStart(month));
     const to = isoDate(new Date(month.getFullYear(), month.getMonth() + 1, 0));
-    const [visits, employees] = await Promise.all([
+    const [visits, employees, clients] = await Promise.all([
       outdoorVisitApi.listAll({
         from, to, employeeId: employeeId || undefined,
       }),
       employeesApi.listActive(),
+      clientApi.listWithLocations(),
     ]);
-    return { visits, employees };
+    return {
+      visits, employees,
+      locations: clients.flatMap((c) => c.locations),
+    };
   }, [monthValue, employeeId]);
 
   const visits = q.data?.visits ?? [];
   const employees = q.data?.employees ?? [];
+  const locations = q.data?.locations ?? [];
+  /** Client site name for a visit, when one was recorded. */
+  const locationName = (id: string) =>
+    locations.find((l) => l.id === id)?.name ?? '—';
 
   const columns: Column<Row>[] = [
     { key: 'emp', header: 'Employee',
@@ -70,7 +78,16 @@ export function OutdoorVisitReportPage() {
     { key: 'status', header: 'Status',
       cell: (v) => <StatusBadge status={v.status} /> },
     { key: 'where', header: 'Site / location',
-      cell: (v) => v.location ?? <span className="muted">—</span> },
+      cell: (v) => (
+        <>
+          {v.location}
+          {v.client_location_id && (
+            <div className="muted small">
+              {locationName(v.client_location_id)}
+            </div>
+          )}
+        </>
+      ) },
     { key: 'purpose', header: 'Purpose',
       cell: (v) => v.purpose ?? <span className="muted">—</span> },
   ];

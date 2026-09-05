@@ -55,6 +55,7 @@ export function SalaryAdvancePage() {
     }));
   }, [saving]);
 
+  const [tab, setTab] = useState<'advances' | 'summary'>('advances');
   const ledger = useQuery(async (): Promise<LedgerLine[]> => {
     if (!employeeId) return [];
     const [advances, recoveries] = await Promise.all([
@@ -118,30 +119,20 @@ export function SalaryAdvancePage() {
         subtitle="Kept separate from company advances; recovered through payroll"
       />
 
-      <Card title="Give a salary advance">
-        <div className="form-grid-2">
-          <Select label="Employee" value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}>
-            <option value="">Select an employee…</option>
-            {(emps.data ?? []).map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
-            ))}
-          </Select>
-          <TextInput label="Date" type="date" value={date}
-            onChange={(e) => setDate(e.target.value)} />
-        </div>
-        <div className="form-grid-2">
-          <TextInput label="Amount (₹)" type="number" min="0" step="0.01" value={amount}
-            onChange={(e) => setAmount(e.target.value)} />
-          <TextInput label="Note" value={note} onChange={(e) => setNote(e.target.value)}
-            placeholder="Purpose" />
-        </div>
-        <Button variant="primary" disabled={saving || !employeeId}
-          onClick={() => void give()}>Record salary advance</Button>
-      </Card>
+      <div className="tabbar" role="tablist" aria-label="Salary advance views">
+        <button role="tab" aria-selected={tab === 'advances'}
+          className={`tab ${tab === 'advances' ? 'is-active' : ''}`}
+          onClick={() => setTab('advances')}>
+          Advances &amp; ledger
+        </button>
+        <button role="tab" aria-selected={tab === 'summary'}
+          className={`tab ${tab === 'summary' ? 'is-active' : ''}`}
+          onClick={() => setTab('summary')}>
+          Outstanding summary
+        </button>
+      </div>
 
+      {tab === 'summary' ? (
       <Card title="Outstanding — all employees">
         {summary.loading ? <Spinner /> : (
           <DataTable
@@ -166,6 +157,30 @@ export function SalaryAdvancePage() {
           />
         )}
       </Card>
+      ) : (<>
+      <Card title="Give a salary advance">
+        <div className="form-grid-2">
+          <Select label="Employee" value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}>
+            <option value="">Select an employee…</option>
+            {(emps.data ?? []).map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.employee_code} — {e.first_name} {e.last_name}
+              </option>
+            ))}
+          </Select>
+          <TextInput label="Date" type="date" value={date}
+            onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="form-grid-2">
+          <TextInput label="Amount (₹)" type="number" min="0" step="0.01" value={amount}
+            onChange={(e) => setAmount(e.target.value)} />
+          <TextInput label="Note" value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="Purpose" />
+        </div>
+        <Button variant="primary" disabled={saving || !employeeId}
+          onClick={() => void give()}>Record salary advance</Button>
+      </Card>
 
       {employeeId && (
         <Card title="Employee ledger">
@@ -175,6 +190,7 @@ export function SalaryAdvancePage() {
           )}
         </Card>
       )}
+    </>)}
     </>
   );
 }

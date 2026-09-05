@@ -220,7 +220,7 @@ export const attendanceChangeApi = {
 export type OutdoorVisitInput = Pick<
   OutdoorVisit,
   'employee_id' | 'start_date' | 'end_date' | 'start_time' | 'end_time'
-  | 'visit_type' | 'client_id' | 'location' | 'purpose'
+  | 'visit_type' | 'client_id' | 'client_location_id' | 'location' | 'purpose'
 >;
 
 export const outdoorVisitApi = {
@@ -412,7 +412,8 @@ export const expenseApi = {
   async updateOwn(id: string, patch: {
     expense_date: string; category: string; amount: number;
     bill_number: string | null; description: string | null;
-    client_id: string | null; paid_from_advance: boolean;
+    client_id: string | null; client_location_id: string | null;
+    paid_from_advance: boolean;
   }, receipt?: File | null): Promise<void> {
     let receipt_url: string | undefined;
     if (receipt) {
@@ -752,6 +753,13 @@ export const clientApi = {
     let q = supabase.from('client_companies').select('*').order('name');
     if (activeOnly) q = q.eq('is_active', true);
     return unwrapList<ClientCompany>(await q);
+  },
+  /** Active locations for one client, for the employee-facing pickers. */
+  async locationsFor(clientId: string): Promise<ClientLocation[]> {
+    return unwrapList<ClientLocation>(
+      await supabase.from('client_locations').select('*')
+        .eq('client_id', clientId).eq('is_active', true).order('name'),
+    );
   },
   /** Companies with their locations, for the settings panel. */
   async listWithLocations(): Promise<ClientWithLocations[]> {

@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Select, TextInput } from '@/components/ui/Field';
+import { ClientLocationSelect } from '@/components/ui/ClientLocationSelect';
 import { TimeInput } from '@/components/ui/TimeInput';
 import { StatusBadge } from '@/components/ui/Badge';
 import type { OutdoorVisit } from '@/types/db';
@@ -40,6 +41,7 @@ export function OutdoorVisitsPage() {
   const [endTime, setEndTime] = useState('');
   const [visitType, setVisitType] = useState<VisitType>('day');
   const [clientId, setClientId] = useState('');
+  const [clientLocationId, setClientLocationId] = useState('');
   const [location, setLocation] = useState('');
   const [purpose, setPurpose] = useState('');
   const [saving, setSaving] = useState(false);
@@ -71,7 +73,7 @@ export function OutdoorVisitsPage() {
   function reset() {
     setStartDate(isoDate(today)); setEndDate(isoDate(today));
     setStartTime(''); setEndTime(''); setVisitType('day');
-    setClientId(''); setLocation(''); setPurpose('');
+    setClientId(''); setClientLocationId(''); setLocation(''); setPurpose('');
   }
 
   async function save() {
@@ -93,6 +95,7 @@ export function OutdoorVisitsPage() {
         end_time: check.value.endTime,
         visit_type: check.value.visitType,
         client_id: clientId || null,
+        client_location_id: clientLocationId || null,
         location: location.trim(),
         purpose: purpose.trim() || null,
       });
@@ -199,6 +202,9 @@ export function OutdoorVisitsPage() {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </Select>
+        <ClientLocationSelect clientId={clientId} value={clientLocationId}
+          onChange={setClientLocationId}
+          label="Client site (optional)" />
         <TextInput label="Purpose / remarks (optional)" value={purpose}
           onChange={(e) => setPurpose(e.target.value)} />
 

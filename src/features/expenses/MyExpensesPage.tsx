@@ -3,6 +3,7 @@ import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import { advanceApi, clientApi, expenseApi } from '@/lib/api';
+import { ClientLocationSelect } from '@/components/ui/ClientLocationSelect';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate } from '@/lib/payroll';
 import { Card } from '@/components/ui/Card';
@@ -30,6 +31,7 @@ export function MyExpensesPage() {
   const [amount, setAmount] = useState('');
   const [bill, setBill] = useState('');
   const [clientId, setClientId] = useState('');
+  const [clientLocationId, setClientLocationId] = useState('');
   const [description, setDescription] = useState('');
   const [receipt, setReceipt] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -61,6 +63,7 @@ export function MyExpensesPage() {
     setBill(e.bill_number ?? '');
     setDescription(e.description ?? '');
     setClientId(e.client_id ?? '');
+    setClientLocationId(e.client_location_id ?? '');
     setPaidFromAdvance(e.paid_from_advance);
     setReceipt(null);
     document.getElementById('expense-form')?.scrollIntoView({ behavior: 'smooth' });
@@ -70,6 +73,7 @@ export function MyExpensesPage() {
     setEditingId(null);
     setDate(isoDate(new Date())); setCategory(CATEGORIES[0]);
     setAmount(''); setBill(''); setDescription(''); setClientId('');
+    setClientLocationId('');
     setPaidFromAdvance(false); setReceipt(null);
   }
 
@@ -86,13 +90,15 @@ export function MyExpensesPage() {
           expense_date: date, category, amount: amt,
           bill_number: bill || null, description: description || null,
           client_id: clientId || null,
+          client_location_id: clientLocationId || null,
           paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
         }, receipt);
       } else {
         await expenseApi.submit({
           employee_id: employeeId, expense_date: date, category, amount: amt,
           bill_number: bill || null, description: description || null,
-          client_id: clientId || null, receipt_url: null,
+          client_id: clientId || null,
+          client_location_id: clientLocationId || null, receipt_url: null,
           paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
         }, receipt);
       }
@@ -162,6 +168,8 @@ export function MyExpensesPage() {
           <option value="">— No client —</option>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
+        <ClientLocationSelect clientId={clientId} value={clientLocationId}
+          onChange={setClientLocationId} />
         <TextArea label="Description" value={description}
           onChange={(e) => setDescription(e.target.value)} placeholder="Optional details" />
 

@@ -86,6 +86,9 @@ export interface OutdoorVisit {
   approved_at: string | null;
   review_note: string | null;
   client_id: string | null;
+  /** Which of the client's sites, when a client is named. Optional. */
+  client_location_id: string | null;
+  /** Free-text visit location typed by the employee. Always required. */
   location: string;
   purpose: string | null;
   created_at: string;
@@ -128,6 +131,8 @@ export interface CompanyExpense {
   bill_number: string | null;
   description: string | null;
   client_id: string | null;
+  /** Which of the client's sites, when a client is named. Optional. */
+  client_location_id: string | null;
   /** Storage object path in the private expense-receipts bucket. */
   receipt_url: string | null;
   status: ApprovalStatus;

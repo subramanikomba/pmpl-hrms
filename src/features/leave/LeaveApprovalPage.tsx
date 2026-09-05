@@ -151,6 +151,52 @@ export function LeaveApprovalPage() {
         </Select>
       </Card>
 
+      {corrections.loading ? <Spinner label="Loading attendance corrections…" />
+        : corrections.error
+          ? <Card><p className="error-text">{corrections.error}</p></Card>
+          : (corrections.data ?? []).length > 0 && (
+            <Card title="Attendance correction requests">
+              <p className="muted small">
+                Employees requesting a past date be changed to Present.
+                Approving updates the attendance record; rejecting leaves it as it is.
+              </p>
+              {(corrections.data ?? []).map((r) => (
+                <div key={r.id} className="approval-row">
+                  <div className="approval-head">
+                    <div>
+                      <strong>
+                        {r.employees?.first_name} {r.employees?.last_name}
+                      </strong>{' '}
+                      <span className="muted">{r.employees?.employee_code}</span>
+                    </div>
+                    <StatusBadge status={r.status} />
+                  </div>
+                  <p className="approval-dates">
+                    {formatDate(r.date)}{' '}
+                    <span className="muted">
+                      ({r.from_status ? STATUS_WORD[r.from_status] ?? r.from_status : 'Not marked'}
+                      {' '}&rarr; Present)
+                    </span>
+                  </p>
+                  {r.reason && <p className="muted">{r.reason}</p>}
+                  {r.status === 'pending' ? (
+                    <div className="row-end gap">
+                      <Button variant="ghost" disabled={busyId === r.id}
+                        onClick={() => void decideCorrection(r, false)}>Reject</Button>
+                      <Button variant="success" disabled={busyId === r.id}
+                        onClick={() => void decideCorrection(r, true)}>Approve</Button>
+                    </div>
+                  ) : (
+                    <p className="decision-note">
+                      {r.status === 'approved' ? 'Approved' : 'Rejected'} on{' '}
+                      {formatDate(r.reviewed_at)}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </Card>
+          )}
+
       {q.loading ? <Spinner label="Loading leave requests…" />
         : q.error ? <Card><p className="error-text">{q.error}</p></Card>
         : (
@@ -205,52 +251,6 @@ export function LeaveApprovalPage() {
               ))}
           </Card>
         )}
-
-      {corrections.loading ? <Spinner label="Loading attendance corrections…" />
-        : corrections.error
-          ? <Card><p className="error-text">{corrections.error}</p></Card>
-          : (corrections.data ?? []).length > 0 && (
-            <Card title="Attendance correction requests">
-              <p className="muted small">
-                Employees requesting a past date be changed to Present.
-                Approving updates the attendance record; rejecting leaves it as it is.
-              </p>
-              {(corrections.data ?? []).map((r) => (
-                <div key={r.id} className="approval-row">
-                  <div className="approval-head">
-                    <div>
-                      <strong>
-                        {r.employees?.first_name} {r.employees?.last_name}
-                      </strong>{' '}
-                      <span className="muted">{r.employees?.employee_code}</span>
-                    </div>
-                    <StatusBadge status={r.status} />
-                  </div>
-                  <p className="approval-dates">
-                    {formatDate(r.date)}{' '}
-                    <span className="muted">
-                      ({r.from_status ? STATUS_WORD[r.from_status] ?? r.from_status : 'Not marked'}
-                      {' '}&rarr; Present)
-                    </span>
-                  </p>
-                  {r.reason && <p className="muted">{r.reason}</p>}
-                  {r.status === 'pending' ? (
-                    <div className="row-end gap">
-                      <Button variant="ghost" disabled={busyId === r.id}
-                        onClick={() => void decideCorrection(r, false)}>Reject</Button>
-                      <Button variant="success" disabled={busyId === r.id}
-                        onClick={() => void decideCorrection(r, true)}>Approve</Button>
-                    </div>
-                  ) : (
-                    <p className="decision-note">
-                      {r.status === 'approved' ? 'Approved' : 'Rejected'} on{' '}
-                      {formatDate(r.reviewed_at)}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </Card>
-          )}
 
       {rejecting && (
         <Modal open size="sm" title="Reject leave request"
