@@ -95,7 +95,7 @@ export function AttendanceMonthTable(
 
   return (
     <div className="table-scroll">
-      <table className="data-table table-compact">
+      <table className="data-table">
         <thead>
           <tr>
             <th>Date</th>

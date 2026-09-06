@@ -143,9 +143,9 @@ export function AttendanceReportPage() {
       })()}
 
       <Card title="Filters">
+        {/* Employee first, then Month — same order as the Mark / correct
+            tab, so switching tabs does not move the fields under the cursor. */}
         <div className="form-grid-2">
-          <TextInput label="Month" type="month" value={monthValue}
-            onChange={(e) => setMonthValue(e.target.value)} />
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>
@@ -155,6 +155,8 @@ export function AttendanceReportPage() {
               </option>
             ))}
           </Select>
+          <TextInput label="Month" type="month" value={monthValue}
+            onChange={(e) => setMonthValue(e.target.value)} />
         </div>
       </Card>
 

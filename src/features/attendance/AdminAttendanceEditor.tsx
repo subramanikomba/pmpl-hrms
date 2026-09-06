@@ -2,15 +2,17 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
-import { attendanceApi, employeesApi, holidayApi, settingsApi } from '@/lib/api';
+import {
+  attendanceApi, attendanceChangeApi, employeesApi, holidayApi, settingsApi,
+} from '@/lib/api';
 import { daysInMonth, isoDate, monthStart } from '@/lib/payroll';
 import { formatDate, monthInputValue, parseMonthInput } from '@/lib/format';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { StatusBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { Select, TextInput } from '@/components/ui/Field';
-import type { AttendanceStatus } from '@/types/db';
+import type { AttendanceChangeRequest, AttendanceStatus } from '@/types/db';
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
@@ -33,15 +35,18 @@ export function AdminAttendanceEditor() {
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [employees, records, holidays, settings] = await Promise.all([
+    const [employees, records, holidays, settings, requests] = await Promise.all([
       employeesApi.listActive(),
       employeeId
         ? attendanceApi.listForMonth(month, employeeId)
         : Promise.resolve([]),
       holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
       settingsApi.get(),
+      employeeId
+        ? attendanceChangeApi.listFor(employeeId)
+        : Promise.resolve([]),
     ]);
-    return { employees, records, holidays, settings };
+    return { employees, records, holidays, settings, requests };
   }, [monthValue, employeeId]);
 
   if (!employee) return null;
@@ -53,6 +58,14 @@ export function AdminAttendanceEditor() {
 
   const byDate = new Map(records.map((r) => [r.date, r]));
   const todayIso = isoDate(today);
+
+  // Latest correction request per date, so a rejected day can be re-requested
+  // and only the most recent decision is shown.
+  const requestByDate = new Map<string, AttendanceChangeRequest>();
+  for (const r of q.data?.requests ?? []) {
+    const prev = requestByDate.get(r.date);
+    if (!prev || r.created_at > prev.created_at) requestByDate.set(r.date, r);
+  }
 
   async function set(date: string, status: AttendanceStatus) {
     if (!employee || !employeeId) return;
@@ -115,15 +128,16 @@ export function AdminAttendanceEditor() {
         <p className="muted small">
           Admin changes take effect immediately and are recorded in the
           attendance history. They do not go through the correction approval
-          workflow.
+          workflow. A day with a correction request pending is decided on the
+          Approvals screen instead.
         </p>
         {q.loading ? <Spinner label="Loading attendance…" /> : (
           <div className="table-scroll">
-            <table className="data-table table-compact">
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Date</th><th>Day</th><th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Set to</th>
+                  <th style={{ textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,6 +154,12 @@ export function AdminAttendanceEditor() {
                   else if (isHoliday) shown = 'company_holiday';
                   else shown = 'not_marked';
 
+                  // Present on a Sunday or holiday: the day is already paid as
+                  // an off, so this flags the work behind the weekend allowance.
+                  const workedOff = rec?.status === 'present' && (isOff || isHoliday);
+                  const req = requestByDate.get(ds);
+                  const pendingReq = req?.status === 'pending';
+
                   return (
                     <tr key={ds} className={isFuture ? 'row-future' : undefined}>
                       <td>{formatDate(d)}</td>
@@ -148,9 +168,26 @@ export function AdminAttendanceEditor() {
                         {shown === 'not_marked'
                           ? <span className="muted">Not marked</span>
                           : <StatusBadge status={shown} />}
+                        {workedOff && (
+                          <> <Badge tone="info">
+                            Worked {isOff ? 'weekly off' : 'holiday'}
+                          </Badge></>
+                        )}
+                        {pendingReq && (
+                          <> <Badge tone="warn">Correction requested</Badge></>
+                        )}
+                        {req?.status === 'rejected' && rec?.status !== 'present' && (
+                          <> <Badge tone="danger">Correction rejected</Badge></>
+                        )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        {isFuture ? <span className="muted">—</span> : (
+                        {isFuture ? <span className="muted">—</span>
+                          : pendingReq ? (
+                            <span className="muted small"
+                              title="Decide this on the Approvals screen">
+                              Awaiting approval
+                            </span>
+                          ) : (
                           <div className="row-end gap-sm" style={{ marginTop: 0 }}>
                             <Button
                               size="sm"
