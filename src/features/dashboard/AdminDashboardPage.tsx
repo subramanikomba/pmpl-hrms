@@ -93,10 +93,14 @@ export function AdminDashboardPage() {
   const unmarkedToday = workingToday
     ? d.employees.filter((e) => !markedTodayIds.has(e.id)).length
     : 0;
-  // Everything listed under "Needs your attention", including today's
+  // Everything genuinely awaiting an Admin decision. Unmarked attendance is
+  // deliberately excluded here — it needs resolving, but it is not an
+  // approval.
+  const pendingApprovals = d.pendingLeave.length + d.pendingExp.length
+    + d.pendingCorrections.length + d.pendingVisits.length;
+  // Everything listed under "Needs your attention", which also covers today's
   // unmarked attendance.
-  const pendingTotal = d.pendingLeave.length + d.pendingExp.length
-    + d.pendingCorrections.length + unmarkedToday;
+  const pendingTotal = pendingApprovals + unmarkedToday;
   const visitTotals = countVisitsForMonth(d.monthVisits, d.month);
 
   const STATUS_TONE = {
@@ -122,8 +126,8 @@ export function AdminDashboardPage() {
         <StatCard label="On leave today" value={d.onLeaveToday} />
         <StatCard
           label="Pending approvals"
-          value={d.pendingLeave.length + d.pendingExp.length}
-          tone={d.pendingLeave.length + d.pendingExp.length > 0 ? 'warn' : 'default'}
+          value={pendingApprovals}
+          tone={pendingApprovals > 0 ? 'warn' : 'default'}
         />
       </div>
 
