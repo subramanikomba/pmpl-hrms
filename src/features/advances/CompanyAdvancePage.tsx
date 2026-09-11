@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
-import { advanceApi, employeesApi, expenseApi } from '@/lib/api';
+import { advanceApi, employeesApi, expenseApi, settingsApi } from '@/lib/api';
 import { round2 } from '@/lib/payroll';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -14,9 +14,15 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Select, TextInput } from '@/components/ui/Field';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { ReimbursementsTab } from '@/features/vouchers/ReimbursementsTab';
+import {
+  generateVoucherPdf, generateVoucherPreview, type VoucherData,
+} from '@/features/vouchers/voucherDocument';
+import { PdfViewerModal } from '@/features/payroll/PdfViewerModal';
+import { EyeIcon } from '@/components/ui/Icons';
 import type { CompanyExpense, Employee, LedgerRow } from '@/types/db';
 
-type Tab = 'ledger' | 'summary';
+type Tab = 'ledger' | 'summary' | 'reimbursements';
 
 export function CompanyAdvancePage() {
   const { employee } = useAuth();
@@ -29,6 +35,43 @@ export function CompanyAdvancePage() {
   const [saving, setSaving] = useState(false);
   const [accounting, setAccounting] = useState<CompanyExpense | null>(null);
   const [tab, setTab] = useState<Tab>('ledger');
+  const [busyVoucher, setBusyVoucher] = useState<string | null>(null);
+  const [viewingVoucher, setViewingVoucher] = useState<VoucherData | null>(null);
+
+  /**
+   * Rebuild the payment voucher for an advance already in the ledger.
+   * Advances recorded before vouchers existed get a number assigned on first
+   * download, and keep it thereafter.
+   */
+  async function advanceVoucher(row: LedgerRow) {
+    setBusyVoucher(row.txn_id);
+    try {
+      const advance = await advanceApi.getOne(row.txn_id);
+      if (!advance) throw new Error('Advance not found.');
+      const target = (emps.data ?? []).find((e) => e.id === advance.employee_id);
+      if (!target) throw new Error('Employee not found.');
+
+      const [voucherNo, settings] = await Promise.all([
+        advanceApi.ensureVoucherNo(advance),
+        settingsApi.get(),
+      ]);
+
+      setViewingVoucher({
+        kind: 'advance',
+        voucherNo,
+        paymentDate: advance.advance_date,
+        amount: Number(advance.amount),
+        paymentMode: advance.reference ? 'Bank Transfer / NEFT' : 'Cash',
+        reference: advance.reference || null,
+        notes: advance.note || null,
+        employee: target,
+        settings,
+      });
+      ledger.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not build the voucher');
+    } finally { setBusyVoucher(null); }
+  }
 
   const emps = useQuery(() => employeesApi.listActive(), []);
   const ledger = useQuery(
@@ -75,11 +118,30 @@ export function CompanyAdvancePage() {
     if (!Number.isFinite(amt) || amt <= 0) { toast.error('Enter a valid amount.'); return; }
     setSaving(true);
     try {
-      await advanceApi.give({
+      const saved = await advanceApi.give({
         employee_id: employeeId, advance_date: date, amount: amt,
         reference, note, given_by: employee.id,
       });
-      toast.success('Company advance recorded.');
+
+      // Payment voucher for the advance. Built from the saved record, so it
+      // can be regenerated later from the ledger.
+      const target = (emps.data ?? []).find((e) => e.id === employeeId);
+      if (target && saved.voucher_no) {
+        const settings = await settingsApi.get();
+        await generateVoucherPdf({
+          kind: 'advance',
+          voucherNo: saved.voucher_no,
+          paymentDate: saved.advance_date,
+          amount: Number(saved.amount),
+          paymentMode: reference ? 'Bank Transfer / NEFT' : 'Cash',
+          reference: reference || null,
+          notes: note || null,
+          employee: target,
+          settings,
+        });
+      }
+      toast.success(`Company advance recorded${
+        saved.voucher_no ? ` — voucher ${saved.voucher_no}` : ''}.`);
       setAmount(''); setReference(''); setNote('');
       ledger.reload();
     } catch (e) {
@@ -109,14 +171,21 @@ export function CompanyAdvancePage() {
           <Button size="sm" variant="ghost"
             onClick={() => void unaccount(r)}>Un-account</Button>
         )
-        : null },
+        : (
+          // Advances only. Accounting an expense against an advance moves no
+          // money, so it has no payment voucher.
+          <Button size="sm" variant="ghost" disabled={busyVoucher === r.txn_id}
+            title="View payment voucher"
+            aria-label="View payment voucher"
+            onClick={() => void advanceVoucher(r)}><EyeIcon /></Button>
+        ) },
   ];
 
   return (
     <>
       <PageHeader
-        title="Company advance & expense ledger"
-        subtitle="Company money given to employees, and expenses accounted against it"
+        title="Expense Ledger"
+        subtitle="Company advances, expenses accounted against them, and reimbursements"
       />
 
       <div className="tabbar" role="tablist" aria-label="Advance and expense views">
@@ -134,9 +203,17 @@ export function CompanyAdvancePage() {
         >
           Advance &amp; expense summary
         </button>
+        <button
+          role="tab" aria-selected={tab === 'reimbursements'}
+          className={`tab ${tab === 'reimbursements' ? 'is-active' : ''}`}
+          onClick={() => setTab('reimbursements')}
+        >
+          Reimbursements
+        </button>
       </div>
 
-      {tab === 'summary' ? <AdvanceExpenseSummary /> : (
+      {tab === 'reimbursements' ? <ReimbursementsTab />
+        : tab === 'summary' ? <AdvanceExpenseSummary /> : (
       <>
       <Card title="Give a company advance">
         <div className="form-grid-2">
@@ -202,6 +279,15 @@ export function CompanyAdvancePage() {
             </Card>
           )}
         </>
+      )}
+
+      {viewingVoucher && (
+        <PdfViewerModal
+          title={`Payment voucher — ${viewingVoucher.voucherNo}`}
+          build={() => generateVoucherPreview(viewingVoucher)}
+          onClose={() => setViewingVoucher(null)}
+          onDownload={() => void generateVoucherPdf(viewingVoucher)}
+        />
       )}
 
       {accounting && (

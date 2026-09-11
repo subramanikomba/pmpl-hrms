@@ -14,8 +14,7 @@ import { OutdoorVisitReportPage } from '@/features/visits/OutdoorVisitReportPage
 import { AdminDashboardPage } from '@/features/dashboard/AdminDashboardPage';
 import { EmployeesPage } from '@/features/employees/EmployeesPage';
 import { AttendanceReportPage } from '@/features/attendance/AttendanceReportPage';
-import { LeaveApprovalPage } from '@/features/leave/LeaveApprovalPage';
-import { ExpenseApprovalPage } from '@/features/expenses/ExpenseApprovalPage';
+import { ApprovalsPage } from '@/features/approvals/ApprovalsPage';
 import { ExpenseReportsPage } from '@/features/expenses/ExpenseReportsPage';
 import { CompanyAdvancePage } from '@/features/advances/CompanyAdvancePage';
 import { SalaryAdvancePage } from '@/features/advances/SalaryAdvancePage';
@@ -47,8 +46,10 @@ export const router = createHashRouter([
       { path: 'admin', element: <RequireAuth adminOnly><AdminDashboardPage /></RequireAuth> },
       { path: 'admin/employees', element: <RequireAuth adminOnly><EmployeesPage /></RequireAuth> },
       { path: 'admin/attendance', element: <RequireAuth adminOnly><AttendanceReportPage /></RequireAuth> },
-      { path: 'admin/leave', element: <RequireAuth adminOnly><LeaveApprovalPage /></RequireAuth> },
-      { path: 'admin/expenses', element: <RequireAuth adminOnly><ExpenseApprovalPage /></RequireAuth> },
+      { path: 'admin/approvals', element: <RequireAuth adminOnly><ApprovalsPage /></RequireAuth> },
+      // Superseded by /admin/approvals; kept so existing links still resolve.
+      { path: 'admin/leave', element: <Navigate to="/admin/approvals" replace /> },
+      { path: 'admin/expenses', element: <Navigate to="/admin/approvals" replace /> },
       { path: 'admin/expense-reports', element: <RequireAuth adminOnly><ExpenseReportsPage /></RequireAuth> },
       { path: 'admin/outdoor-visits', element: <RequireAuth adminOnly><OutdoorVisitReportPage /></RequireAuth> },
       { path: 'admin/company-advance', element: <RequireAuth adminOnly><CompanyAdvancePage /></RequireAuth> },

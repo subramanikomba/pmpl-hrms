@@ -32,12 +32,6 @@ export function parseMonthInput(v: string): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, 1);
 }
 
-/** Spec: salary slips show a masked PAN. */
-export function maskPan(pan: string | null | undefined): string {
-  if (!pan || pan.length < 5) return '—';
-  return pan.slice(0, 3) + 'XXXXX' + pan.slice(-2);
-}
-
 const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
   'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
   'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];

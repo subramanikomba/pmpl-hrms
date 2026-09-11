@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { amountInWords, maskPan, monthInputValue, parseMonthInput } from './format';
+import { amountInWords, monthInputValue, parseMonthInput } from './format';
 
 describe('amountInWords', () => {
   it('handles zero', () => {
@@ -18,16 +18,6 @@ describe('amountInWords', () => {
   });
   it('includes paise when present', () => {
     expect(amountInWords(1.5)).toContain('Fifty Paise');
-  });
-});
-
-describe('maskPan', () => {
-  it('masks the middle of a PAN', () => {
-    expect(maskPan('ABCDE1234F')).toBe('ABCXXXXX4F');
-  });
-  it('returns a dash when absent', () => {
-    expect(maskPan(null)).toBe('—');
-    expect(maskPan('')).toBe('—');
   });
 });
 

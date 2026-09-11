@@ -16,7 +16,7 @@ const ADMIN_PRIMARY: NavItem[] = [
   { to: '/admin', label: 'Dashboard' },
   { to: '/admin/employees', label: 'Employees' },
   { to: '/admin/attendance', label: 'Attendance' },
-  { to: '/admin/leave', label: 'Approvals' },
+  { to: '/admin/approvals', label: 'Approvals' },
   { to: '/admin/payroll', label: 'Payroll' },
   { to: '/admin/salary-slips', label: 'Salary Slips' },
 ];
@@ -26,12 +26,11 @@ interface NavGroup { heading: string; items: NavItem[] }
 
 const ADMIN_MORE_GROUPS: NavGroup[] = [
   {
-    heading: 'Expenses',
+    heading: 'Expenses & Payments',
     items: [
-      { to: '/admin/expenses', label: 'Expense Approvals' },
       { to: '/admin/expense-reports', label: 'Expense Reports' },
       { to: '/admin/outdoor-visits', label: 'Outdoor Visits' },
-      { to: '/admin/company-advance', label: 'Company Advance & Expense Ledger' },
+      { to: '/admin/company-advance', label: 'Expense Ledger' },
     ],
   },
   {

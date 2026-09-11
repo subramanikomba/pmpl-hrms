@@ -15,12 +15,14 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { Employee, SalaryStructure } from '@/types/db';
 
 interface NewEmployeeForm {
+  /** PMPL's own numbering. Blank lets the database assign the next code. */
+  employee_code: string;
   first_name: string; last_name: string;
   email: string; password: string; designation: string;
   pan: string; phone: string; is_admin: boolean;
 }
 const EMPTY_FORM: NewEmployeeForm = {
-  first_name: '', last_name: '', email: '',
+  employee_code: '', first_name: '', last_name: '', email: '',
   password: '', designation: '', pan: '', phone: '', is_admin: false,
 };
 
@@ -44,6 +46,18 @@ export function EmployeesPage() {
   // Only warn about losing work if something was actually entered.
   const dirty = JSON.stringify(form) !== JSON.stringify(EMPTY_FORM);
 
+  /**
+   * Close the add-employee modal and discard what was typed.
+   *
+   * Both the X and the Cancel button use this. They previously differed —
+   * only the X reset the form — so cancelling and reopening showed the
+   * abandoned entry, which is easy to mistake for a saved draft.
+   */
+  function closeAdd() {
+    setAddOpen(false);
+    setForm(EMPTY_FORM);
+  }
+
   async function createEmployee() {
     if (!form.first_name || !form.last_name || !form.email) {
       toast.error('First name, last name and email are required.');
@@ -56,6 +70,8 @@ export function EmployeesPage() {
     setSaving(true);
     try {
       await employeesApi.create({
+        // Omitted when blank so the database trigger assigns the next code.
+        employee_code: form.employee_code.trim() || undefined,
         email: form.email.trim(), password: form.password,
         first_name: form.first_name.trim(), last_name: form.last_name.trim(),
         designation: form.designation.trim(), phone: form.phone.trim(),
@@ -124,7 +140,7 @@ export function EmployeesPage() {
       <Modal
         open={addOpen}
         title="Add employee"
-        onClose={() => { setAddOpen(false); setForm(EMPTY_FORM); }}
+        onClose={closeAdd}
         dismissOnBackdrop={false}
         confirmClose={dirty}
         confirmMessage="Discard this employee’s details?"
@@ -135,6 +151,10 @@ export function EmployeesPage() {
           <TextInput label="Last name" value={form.last_name}
             onChange={(e) => set('last_name', e.target.value)} />
         </div>
+        <TextInput label="Employee code" value={form.employee_code}
+          onChange={(e) => set('employee_code', e.target.value)}
+          placeholder="e.g. EMP112"
+          hint="PMPL's own number. Leave blank to use the next automatic code." />
         <div className="form-grid-2">
           <TextInput label="Phone (optional)" value={form.phone}
             onChange={(e) => set('phone', e.target.value)}
@@ -142,10 +162,15 @@ export function EmployeesPage() {
           <TextInput label="Designation" value={form.designation}
             onChange={(e) => set('designation', e.target.value)} />
         </div>
+        {/* The browser otherwise offers the signed-in Admin's own saved
+            credentials here, because this looks like a login form. These are
+            a NEW employee's details, never the current user's. */}
         <TextInput label="Email address" type="email" value={form.email}
+          autoComplete="off" name="new-employee-email"
           onChange={(e) => set('email', e.target.value)} />
         <div className="form-grid-2">
           <TextInput label="Temporary password" type="password" value={form.password}
+            autoComplete="new-password" name="new-employee-password"
             onChange={(e) => set('password', e.target.value)}
             hint="Minimum 6 characters" />
           <TextInput label="PAN" value={form.pan} maxLength={10}
@@ -154,7 +179,7 @@ export function EmployeesPage() {
         <Checkbox label="This employee is an administrator" checked={form.is_admin}
           onChange={(e) => set('is_admin', e.target.checked)} />
         <div className="row-end gap">
-          <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={closeAdd}>Cancel</Button>
           <Button variant="primary" disabled={saving} onClick={() => void createEmployee()}>
             {saving ? 'Creating…' : 'Create employee'}
           </Button>
@@ -383,6 +408,7 @@ function EditEmployeeModal(
   { employee: Employee; onClose: () => void; onSaved: () => void },
 ) {
   const toast = useToast();
+  const [code, setCode] = useState(employee.employee_code);
   const [first, setFirst] = useState(employee.first_name);
   const [last, setLast] = useState(employee.last_name);
   const [phone, setPhone] = useState(employee.phone ?? '');
@@ -398,7 +424,8 @@ function EditEmployeeModal(
   const [pwSaving, setPwSaving] = useState(false);
 
   const dirty =
-    first !== employee.first_name || last !== employee.last_name
+    code !== employee.employee_code
+    || first !== employee.first_name || last !== employee.last_name
     || phone !== (employee.phone ?? '')
 
     || designation !== (employee.designation ?? '')
@@ -425,9 +452,14 @@ function EditEmployeeModal(
       toast.error('First name and last name are required.');
       return;
     }
+    if (!code.trim()) {
+      toast.error('Employee code is required.');
+      return;
+    }
     setSaving(true);
     try {
       await employeesApi.update(employee.id, {
+        employee_code: code.trim(),
         first_name: first.trim(),
         last_name: last.trim(),
         phone: phone.trim() || null,
@@ -455,6 +487,10 @@ function EditEmployeeModal(
         Profile details only. Changing these does not affect attendance,
         payroll or previously generated salary slips.
       </p>
+      <TextInput label="Employee code" value={code}
+        onChange={(e) => setCode(e.target.value)}
+        hint="PMPL's own number. Must be unique." />
+
       <div className="form-grid-2">
         <TextInput label="First name" value={first}
           onChange={(e) => setFirst(e.target.value)} />

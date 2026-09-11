@@ -69,11 +69,17 @@ export function OutdoorVisitReportPage() {
       ) },
     { key: 'type', header: 'Type',
       cell: (v) => v.visit_type === 'overnight'
-        ? <Badge tone="info">Overnight</Badge>
-        : <Badge tone="neutral-alt">Day visit</Badge> },
+        ? <Badge tone="info">
+            {v.day_count} Day{v.day_count === 1 ? '' : 's'} /{' '}
+            {v.nights} Night{v.nights === 1 ? '' : 's'}
+          </Badge>
+        : <Badge tone="neutral-alt">
+            {v.day_count} Day{v.day_count === 1 ? '' : 's'}
+          </Badge> },
     { key: 'times', header: 'Times',
       cell: (v) => `${to12Hour(v.start_time)} – ${to12Hour(v.end_time)}` },
-    { key: 'count', header: 'Count', align: 'right',
+    // The quantity this visit contributes to payroll — nights or days, never both.
+    { key: 'count', header: 'Payroll qty', align: 'right',
       cell: (v) => v.visit_type === 'overnight' ? v.nights : v.day_count },
     { key: 'status', header: 'Status',
       cell: (v) => <StatusBadge status={v.status} /> },
@@ -122,7 +128,7 @@ export function OutdoorVisitReportPage() {
       <div className="stat-grid">
         <StatCard label="Approved visits" value={overall.visits} />
         <StatCard label="Day-visit days" value={overall.dayVisitDays} />
-        <StatCard label="Overnight visits" value={overall.overnightVisits}
+        <StatCard label="Nights away" value={overall.overnightNights}
           tone="good" />
       </div>
 

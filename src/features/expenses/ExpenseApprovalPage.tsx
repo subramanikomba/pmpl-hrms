@@ -15,7 +15,8 @@ import { Select, TextInput } from '@/components/ui/Field';
 import { ReceiptLink } from './ReceiptControls';
 import type { ApprovalStatus, CompanyExpense, WithEmployee } from '@/types/db';
 
-export function ExpenseApprovalPage() {
+/** `embedded` hides the page header when shown as a tab on Approvals. */
+export function ExpenseApprovalPage({ embedded }: { embedded?: boolean } = {}) {
   const { employee } = useAuth();
   const toast = useToast();
   const [filter, setFilter] = useState<ApprovalStatus | 'all'>('pending');
@@ -39,10 +40,12 @@ export function ExpenseApprovalPage() {
 
   return (
     <>
-      <PageHeader
-        title="Expense approvals"
-        subtitle="Approve claims, optionally accounting them against a company advance"
-      />
+      {!embedded && (
+        <PageHeader
+          title="Expense approvals"
+          subtitle="Approve claims, optionally accounting them against a company advance"
+        />
+      )}
 
       <Card>
         <Select label="Filter by status" value={filter}

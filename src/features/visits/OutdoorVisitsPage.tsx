@@ -132,9 +132,12 @@ export function OutdoorVisitsPage() {
       ) },
     { key: 'type', header: 'Type',
       cell: (v) => v.visit_type === 'overnight'
-        ? <Badge tone="info">Overnight</Badge>
+        ? <Badge tone="info">
+            {v.day_count} Day{v.day_count === 1 ? '' : 's'} /{' '}
+            {v.nights} Night{v.nights === 1 ? '' : 's'}
+          </Badge>
         : <Badge tone="neutral-alt">
-            Day visit · {v.day_count} day{v.day_count === 1 ? '' : 's'}
+            {v.day_count} Day{v.day_count === 1 ? '' : 's'}
           </Badge> },
     { key: 'status', header: 'Status',
       cell: (v) => <StatusBadge status={v.status} /> },
@@ -165,17 +168,41 @@ export function OutdoorVisitsPage() {
       <div className="stat-grid">
         <StatCard label="Approved visits" value={totals.visits} />
         <StatCard label="Day-visit days" value={totals.dayVisitDays} />
-        <StatCard label="Overnight visits" value={totals.overnightVisits}
+        <StatCard label="Nights away" value={totals.overnightNights}
           tone="good" />
       </div>
 
       <Card title="Record a visit">
-        <Select label="Visit type" value={visitType}
-          onChange={(e) => setVisitType(e.target.value as VisitType)}
-          hint="Day: out and back in the day. Overnight: leave at night, return next morning.">
-          <option value="day">Outdoor Day Visit</option>
-          <option value="overnight">Outdoor Overnight Visit</option>
-        </Select>
+        {/* Radios rather than a dropdown: both choices and what each means
+            are visible at once, which matters because the choice decides
+            which allowance rate applies. */}
+        <div className="field">
+          <span className="field-label">Visit type</span>
+          <div className="radio-group">
+            <label className={`radio-card ${visitType === 'day' ? 'is-active' : ''}`}>
+              <input type="radio" name="visit-type" value="day"
+                checked={visitType === 'day'}
+                onChange={() => setVisitType('day')} />
+              <span>
+                <strong>Outdoor Day Visit</strong>
+                <span className="radio-note">
+                  You come back the same day. Paid per day.
+                </span>
+              </span>
+            </label>
+            <label className={`radio-card ${visitType === 'overnight' ? 'is-active' : ''}`}>
+              <input type="radio" name="visit-type" value="overnight"
+                checked={visitType === 'overnight'}
+                onChange={() => setVisitType('overnight')} />
+              <span>
+                <strong>Outdoor Overnight Visit</strong>
+                <span className="radio-note">
+                  You stay away overnight. Paid per night.
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
         <div className="form-grid-2">
           <TextInput label="Start date *" type="date" value={startDate}
             max={isoDate(today)}
@@ -186,7 +213,7 @@ export function OutdoorVisitsPage() {
           <TextInput label="End date" type="date" value={endDate}
             min={startDate} max={isoDate(today)}
             onChange={(e) => setEndDate(e.target.value)}
-            hint="Leave blank for a single-day visit" />
+            hint="Leave blank if you returned the same day" />
         </div>
         <div className="form-grid-2">
           <TimeInput label="Start time *" value={startTime} onChange={setStartTime} />
@@ -212,14 +239,20 @@ export function OutdoorVisitsPage() {
 
         {check.ok ? (
           <p className="callout-ok">
+            <strong>
+              {check.value.dayCount} Day{check.value.dayCount === 1 ? '' : 's'}
+              {check.value.visitType === 'overnight'
+                && ` / ${check.value.nights} Night${check.value.nights === 1 ? '' : 's'}`}
+            </strong>
+            {' — '}
+            {formatDate(check.value.startDate)}, {to12Hour(check.value.startTime)}
+            {' to '}
+            {formatDate(check.value.endDate)}, {to12Hour(check.value.endTime)}.
+            <br />
             {check.value.visitType === 'overnight'
-              ? `Overnight visit — ${to12Hour(check.value.startTime)} on `
-                + `${formatDate(check.value.startDate)} to `
-                + `${to12Hour(check.value.endTime)} on `
-                + `${formatDate(check.value.endDate)}. Counts as 1 overnight visit.`
-              : `Day visit — ${check.value.dayCount} day`
-                + `${check.value.dayCount === 1 ? '' : 's'}. Counts as `
-                + `${check.value.dayCount} outdoor day visit`
+              ? `You will be paid for ${check.value.nights} night`
+                + `${check.value.nights === 1 ? '' : 's'} away.`
+              : `You will be paid for ${check.value.dayCount} outdoor day`
                 + `${check.value.dayCount === 1 ? '' : 's'}.`}
           </p>
         ) : attempted ? (

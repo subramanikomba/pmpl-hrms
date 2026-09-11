@@ -6,6 +6,7 @@ import { isoDate } from '@/lib/payroll';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Select, TextInput } from '@/components/ui/Field';
+import { PAYMENT_MAX_BYTES, PAYMENT_TYPES } from '@/lib/api';
 import type { Employee, PayrollRecord } from '@/types/db';
 
 /** Payment modes offered; "Other" keeps the field usable for anything else. */
@@ -34,6 +35,10 @@ export function RecordPaymentModal(
   const [mode, setMode] = useState(record.payment_mode ?? PAYMENT_MODES[0]);
   const [ref, setRef] = useState(record.cheque_utr ?? '');
   const [saving, setSaving] = useState(false);
+  // Optional proof of payment — a transfer screenshot or receipt.
+  const [file, setFile] = useState<File | null>(null);
+  // Opt-in, and deliberately unchecked by default: Admin-only unless shared.
+  const [shared, setShared] = useState(record.payment_attachment_shared);
 
   // A reference is meaningless for cash, but expected for the rest.
   const refRequired = mode !== 'Cash';
@@ -51,7 +56,7 @@ export function RecordPaymentModal(
         payment_date: date,
         payment_mode: mode,
         cheque_utr: ref.trim() || null,
-      });
+      }, { file, shared, employeeId: employee.id });
       toast.success(
         `Payment recorded for ${employee.first_name} ${employee.last_name}.`,
       );
@@ -87,6 +92,37 @@ export function RecordPaymentModal(
           ? 'Appears on the salary slip'
           : 'Optional for cash payments'}
       />
+
+      <TextInput
+        label="Payment screenshot or receipt (optional)"
+        type="file"
+        accept={PAYMENT_TYPES.join(',')}
+        onChange={(e) => {
+          const f = e.target.files?.[0] ?? null;
+          if (f && f.size > PAYMENT_MAX_BYTES) {
+            toast.error('The file must be 5 MB or smaller.');
+            e.target.value = '';
+            setFile(null);
+            return;
+          }
+          setFile(f);
+        }}
+        hint="JPG, PNG or PDF, up to 5 MB. You can record the payment without one."
+      />
+
+      {/* Sharing is opt-in. Unchecked means the file stays Admin-only, which
+          is enforced by RLS on the storage bucket, not just hidden here. */}
+      <label className="checkbox-row">
+        <input type="checkbox" checked={shared}
+          onChange={(e) => setShared(e.target.checked)} />
+        <span>
+          Share payment screenshot with employee
+          <span className="radio-note">
+            The employee will be able to view it with their salary slip.
+            Leave unchecked to keep it visible to Admin only.
+          </span>
+        </span>
+      </label>
 
       <div className="row-end gap">
         <Button variant="ghost" onClick={onClose}>Cancel</Button>

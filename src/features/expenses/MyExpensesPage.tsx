@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
-import { advanceApi, clientApi, expenseApi } from '@/lib/api';
+import {
+  advanceApi, clientApi, expenseApi, reimbursementApi, settingsApi,
+} from '@/lib/api';
+import { generateVoucherPdf } from '@/features/vouchers/voucherDocument';
 import { ClientLocationSelect } from '@/components/ui/ClientLocationSelect';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate } from '@/lib/payroll';
@@ -40,19 +43,62 @@ export function MyExpensesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const q = useQuery(async () => {
-    const [expenses, clients, ledger] = await Promise.all([
+    const [expenses, clients, ledger, reimbursements] = await Promise.all([
       expenseApi.listFor(employeeId),
       clientApi.list(true),
       advanceApi.ledgerFor(employeeId),
+      reimbursementApi.listFor(employeeId),
     ]);
     const outstanding = ledger.length > 0
       ? Number(ledger[ledger.length - 1]?.running_balance ?? 0) : 0;
-    return { expenses, clients, outstanding };
+    return { expenses, clients, outstanding, reimbursements };
   }, [employeeId]);
 
   if (q.loading) return <Spinner label="Loading expenses…" />;
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
-  const { expenses = [], clients = [], outstanding = 0 } = q.data ?? {};
+  const {
+    expenses = [], clients = [], outstanding = 0, reimbursements = [],
+  } = q.data ?? {};
+
+  /**
+   * Rebuild the employee's own voucher from the stored payment. RLS restricts
+   * both the payment and its lines to this employee.
+   */
+  async function downloadVoucher(paymentId: string) {
+    const payment = reimbursements.find((p) => p.id === paymentId);
+    if (!payment || !employee) return;
+    try {
+      const [settings, items] = await Promise.all([
+        settingsApi.get(),
+        reimbursementApi.itemsFor(payment.id),
+      ]);
+      await generateVoucherPdf({
+        kind: 'reimbursement',
+        voucherNo: payment.voucher_no,
+        paymentDate: payment.payment_date,
+        amount: Number(payment.amount),
+        paymentMode: payment.payment_mode,
+        reference: payment.reference,
+        notes: payment.notes,
+        employee,
+        settings,
+        claims: items.map((it) => {
+          const claim = expenses.find((x) => x.id === it.expense_id);
+          return {
+            date: claim?.expense_date ?? payment.payment_date,
+            category: claim?.category ?? 'Expense',
+            description: claim?.description ?? null,
+            approved: Number(claim?.amount ?? it.amount),
+            previouslyPaid: 0,
+            paidNow: Number(it.amount),
+            outstanding: Number(claim?.amount ?? it.amount) - Number(it.amount),
+          };
+        }),
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not build the voucher');
+    }
+  }
 
   /** Load a pending claim into the form for editing. */
   function startEdit(e: CompanyExpense) {
@@ -200,6 +246,34 @@ export function MyExpensesPage() {
           )}
         </div>
       </Card>
+
+      {reimbursements.length > 0 && (
+        <Card title="Reimbursements received">
+          <p className="muted small">
+            Payments the company has made to you for expenses you paid
+            yourself. These are not salary and do not appear on your salary slip.
+          </p>
+          <ul className="plain-list">
+            {reimbursements.map((p) => (
+              <li key={p.id}>
+                <span>
+                  <strong>{p.voucher_no}</strong>
+                  {' · '}{formatDate(p.payment_date)}
+                  {' · '}{p.payment_mode}
+                  {p.reference ? ` · ${p.reference}` : ''}
+                </span>
+                <span className="row-end gap-sm" style={{ marginTop: 0 }}>
+                  <strong>{formatCurrency(p.amount)}</strong>
+                  <Button size="sm" variant="secondary"
+                    onClick={() => void downloadVoucher(p.id)}>
+                    Voucher
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title="My expense history">
         <DataTable columns={columns} rows={expenses} rowKey={(r) => r.id}

@@ -175,7 +175,7 @@ export function PayrollPage() {
     return deriveBonusCounts({
       breakdown,
       dayVisitDays: vc.dayVisitDays,
-      overnightVisits: vc.overnightVisits,
+      overnightNights: vc.overnightNights,
     });
   }
 

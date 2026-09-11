@@ -6,10 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { paymentStateFor } from '@/lib/payment';
 import { monthStart } from '@/lib/payroll';
 import { formatCurrency, formatDate, formatMonth, monthInputValue, parseMonthInput } from '@/lib/format';
-import { generateDocx, generatePdf, generatePdfPreview } from './slipDocument';
+import {
+  generateDocx, generatePdf, generatePdfBytes, generatePdfPreview,
+} from './slipDocument';
 import { PdfViewerModal } from './PdfViewerModal';
+import { PaymentAttachment } from './PaymentAttachment';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { DownloadIcon, EyeIcon } from '@/components/ui/Icons';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Select, TextInput } from '@/components/ui/Field';
@@ -21,6 +25,8 @@ export function SalarySlipsPage() {
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
   const refs = useQuery(async () => {
@@ -31,7 +37,8 @@ export function SalarySlipsPage() {
   }, []);
 
   const preview = useQuery(
-    () => employeeId ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
+    () => employeeId && employeeId !== 'ALL'
+      ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
     [employeeId, monthValue],
   );
 
@@ -71,26 +78,102 @@ export function SalarySlipsPage() {
     }
   }
 
+  /**
+   * One ZIP of PDF slips for every employee PAID in the selected month.
+   * Reuses the same generator as the single download, so a bulk slip is
+   * byte-identical to the individual one. Unpaid months are skipped, since a
+   * slip is only issued once the payment is recorded.
+   */
+  async function downloadAll() {
+    const settings = refs.data?.settings;
+    const employees = refs.data?.employees ?? [];
+    if (!settings) return;
+
+    setBulkBusy(true);
+    try {
+      const rows = await payrollApi.listForMonth(month);
+      const payable = rows.filter(
+        (r) => r.status === 'paid' && r.payment_date);
+
+      if (payable.length === 0) {
+        toast.error(
+          `No salary slips are available for ${formatMonth(month)}. `
+          + 'Slips appear once payments have been recorded.',
+        );
+        return;
+      }
+
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      let added = 0;
+
+      for (const payroll of payable) {
+        const employee = employees.find((e) => e.id === payroll.employee_id);
+        if (!employee) continue; // inactive employee not in the active list
+        const bytes = await generatePdfBytes({ employee, payroll, settings, month });
+        const name = `${employee.first_name}_${employee.last_name}`
+          .replace(/\s+/g, '_');
+        const monthName = formatMonth(month).replace(/\s+/g, '_');
+        zip.file(`${employee.employee_code}_${name}_${monthName}.pdf`, bytes);
+        added++;
+      }
+
+      if (added === 0) {
+        toast.error('No salary slips could be generated for this month.');
+        return;
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Salary_Slips_${formatMonth(month).replace(/\s+/g, '_')}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${added} salary slip${added === 1 ? '' : 's'} downloaded.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not build the ZIP file');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <>
       <PageHeader title="Salary slips" subtitle="Generate a PDF or Word salary slip" />
 
       <Card>
+        {/* Month first: Admin picks the period, then who within it. */}
         <div className="form-grid-2">
+          <TextInput label="Month" type="month" value={monthValue}
+            onChange={(e) => setMonthValue(e.target.value)} />
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
+            <option value="ALL">All employees</option>
             {(refs.data?.employees ?? []).map((e) => (
               <option key={e.id} value={e.id}>
                 {e.employee_code} — {e.first_name} {e.last_name}
               </option>
             ))}
           </Select>
-          <TextInput label="Month" type="month" value={monthValue}
-            onChange={(e) => setMonthValue(e.target.value)} />
         </div>
 
-        {employeeId && (
+        {employeeId === 'ALL' ? (
+          <div className="slip-preview">
+            <p className="muted small">
+              Downloads one ZIP containing a PDF slip for every employee whose
+              payment for {formatMonth(month)} has been recorded. Word files
+              are not included.
+            </p>
+            <div className="row-end gap">
+              <Button variant="primary" disabled={bulkBusy}
+                onClick={() => void downloadAll()}>
+                {bulkBusy ? 'Preparing…' : 'Download all salary slips (ZIP)'}
+              </Button>
+            </div>
+          </div>
+        ) : employeeId && (
           preview.loading ? <Spinner />
             : preview.data ? (
               <div className="slip-preview">
@@ -135,6 +218,8 @@ export function SalarySlipsPage() {
                           {preview.data.cheque_utr && (
                             <p>Reference: {preview.data.cheque_utr}</p>
                           )}
+                          <PaymentAttachment record={preview.data} isAdmin
+                            onChanged={preview.reload} />
                         </>
                       ) : state !== 'not_processed' && (
                         <p className={state === 'overdue' ? 'error-text' : undefined}>
@@ -159,13 +244,45 @@ export function SalarySlipsPage() {
             recorded. Record the payment from the Payroll screen.
           </p>
         )}
+        {/* View is the primary action; the two file formats sit behind one
+            Download control so the row is not three competing buttons. */}
         <div className="row-end gap">
-          <Button variant="secondary" disabled={busy || !slipReady}
-            onClick={() => setViewing(true)}>View</Button>
-          <Button variant="secondary" disabled={busy || !slipReady}
-            onClick={() => void download('docx')}>Download Word</Button>
+          <div className="dropdown">
+            <Button variant="secondary" disabled={busy || !slipReady}
+              onClick={() => setDownloadOpen((o) => !o)}
+              aria-expanded={downloadOpen} aria-haspopup="menu">
+              <DownloadIcon /> Download
+            </Button>
+            {downloadOpen && slipReady && (
+              <div className="dropdown-menu" role="menu">
+                <button role="menuitem"
+                  onClick={() => { setDownloadOpen(false); void download('pdf'); }}>
+                  PDF
+                </button>
+                <button role="menuitem"
+                  onClick={() => { setDownloadOpen(false); void download('docx'); }}>
+                  Word
+                </button>
+              </div>
+            )}
+          </div>
           <Button variant="primary" disabled={busy || !slipReady}
-            onClick={() => void download('pdf')}>Download PDF</Button>
+            onClick={() => setViewing(true)}>
+            <EyeIcon /> View
+          </Button>
+        </div>
+      </Card>
+
+      <Card title={`All salary slips — ${formatMonth(month)}`}>
+        <p className="muted small">
+          Downloads one ZIP containing a PDF slip for every employee whose
+          payment for this month has been recorded. Word files are not included.
+        </p>
+        <div className="row-end gap">
+          <Button variant="secondary" disabled={bulkBusy}
+            onClick={() => void downloadAll()}>
+            {bulkBusy ? 'Preparing…' : 'Download all salary slips (ZIP)'}
+          </Button>
         </div>
       </Card>
 

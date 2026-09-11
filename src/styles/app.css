@@ -587,3 +587,35 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .input-picker { max-width: 220px; cursor: pointer; }
 .input-picker::-webkit-calendar-picker-indicator { cursor: pointer; margin-left: 4px; }
 @media (max-width: 700px) { .input-picker { max-width: 100%; } }
+
+/* Visit type chooser: both options and their meaning visible at once. */
+.radio-group { display: grid; gap: 8px; }
+.radio-card { display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.radio-card.is-active { border-color: var(--brand); background: var(--brand-soft, #faf5f5); }
+.radio-card input { margin-top: 3px; flex: 0 0 auto; }
+.radio-card strong { display: block; }
+.radio-note { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+@media (min-width: 700px) { .radio-group { grid-template-columns: 1fr 1fr; } }
+
+/* Inline checkbox with an explanatory sub-line. */
+.checkbox-row { display: flex; align-items: flex-start; gap: 10px;
+  margin: 12px 0; cursor: pointer; }
+.checkbox-row input { margin-top: 3px; flex: 0 0 auto; }
+
+/* Download format menu on the salary slip screen. */
+.dropdown { position: relative; display: inline-block; }
+.dropdown-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.12); min-width: 140px; overflow: hidden; }
+.dropdown-menu button { display: block; width: 100%; text-align: left;
+  padding: 9px 14px; background: none; border: 0; cursor: pointer; font-size: 14px; }
+.dropdown-menu button:hover { background: var(--line); }
+
+/* Icon + label buttons on the admin salary slip screen. */
+.btn svg { vertical-align: -2px; margin-right: 6px; }
+
+/* Pending count beside an approval tab label. */
+.tab-count { display: inline-block; margin-left: 6px; min-width: 18px;
+  padding: 0 5px; border-radius: 9px; background: var(--warn, #8a6d3b);
+  color: #fff; font-size: 11px; line-height: 18px; text-align: center; }

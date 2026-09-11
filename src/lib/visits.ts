@@ -2,13 +2,20 @@
  * Outdoor visit rules.
  *
  * The business recognises exactly TWO categories and no third:
- *   - Day visit:       out and back during daytime. May span several calendar
- *                      days, each covered day counting once.
- *   - Overnight visit: leave in the evening/night, return the next morning.
- *                      Exactly one night, counting once.
+ *   - Day visit:       out and back the same day, possibly repeated over
+ *                      several days. Paid per DAY.
+ *                      day_count = end - start + 1, nights = 0.
+ *   - Overnight visit: the employee stays away. Paid per NIGHT.
+ *                      day_count = end - start + 1, nights = end - start.
+ *                      Must span at least one night.
  *
- * There is deliberately no combined "day + night" category, and an approved
- * visit contributes to one count only — never both.
+ * Days are counted the same way for both, and both values are retained for
+ * display, but an approved visit supplies a quantity to exactly ONE allowance
+ * rule — never both — so a trip is never paid at two rates.
+ *
+ * The employee's chosen visit_type decides the category. Times are recorded
+ * for the record only and no longer constrain it: an overnight trip may leave
+ * during the day.
  *
  * Everything here is pure so the same rules can run in the form, in the
  * approval dialog and in the payroll count derivation.
@@ -17,13 +24,8 @@
 export type VisitType = 'day' | 'overnight';
 export type VisitStatus = 'pending' | 'approved' | 'rejected';
 
-/**
- * A visit starting at or after this hour is treated as an evening/night
- * departure; one ending at or before MORNING_END_HOUR is a morning return.
- * These bound the overnight pattern so differing dates alone never imply it.
- */
-export const EVENING_START_HOUR = 16; // 4:00 PM
-export const MORNING_END_HOUR = 12;   // 12:00 noon
+/** Sanity guard on a single visit, mirroring ov_span_sane in Postgres. */
+export const MAX_VISIT_SPAN_DAYS = 60;
 
 export interface VisitDraft {
   startDate: string;
@@ -75,19 +77,6 @@ export function to12Hour(time: string | null): string {
 }
 
 /**
- * Does this date/time pair form the overnight pattern? Evening departure,
- * next-day morning return. Both halves must hold — differing dates alone is
- * never enough (rule 7).
- */
-export function isOvernightPattern(
-  startDate: string, startTime: string, endDate: string, endTime: string,
-): boolean {
-  if (daysBetween(startDate, endDate) !== 1) return false;
-  return minutesOf(startTime) >= EVENING_START_HOUR * 60
-    && minutesOf(endTime) <= MORNING_END_HOUR * 60;
-}
-
-/**
  * Validate a draft and resolve its derived counts.
  *
  * `today` is injected so the rules are testable and so "not in the future"
@@ -121,54 +110,39 @@ export function validateVisit(
   if (endDate > todayIso) {
     return { ok: false, error: 'End date cannot be in the future.' };
   }
-  if (startDate.slice(0, 7) !== endDate.slice(0, 7)) {
+  const span = daysBetween(startDate, endDate);
+  // Sanity guard, mirroring the ov_span_sane database constraint.
+  if (span > MAX_VISIT_SPAN_DAYS) {
     return {
       ok: false,
-      error: 'A visit must start and end in the same calendar month, so that '
-        + 'it belongs to exactly one payroll period. Record it as two visits.',
+      error: `A single visit cannot be longer than ${MAX_VISIT_SPAN_DAYS} days.`,
     };
   }
 
-  const span = daysBetween(startDate, endDate);
-  const overnightPattern = isOvernightPattern(startDate, startTime, endDate, endTime);
-
   if (visitType === 'overnight') {
-    if (span !== 1) {
+    if (span < 1) {
       return {
         ok: false,
-        error: 'An overnight visit must end on the day after it starts. '
-          + 'Record a longer trip as separate visits.',
+        error: 'An overnight visit must return on a later date than it starts. '
+          + 'For a trip out and back the same day, choose Outdoor Day Visit.',
       };
     }
-    if (!overnightPattern) {
-      return {
-        ok: false,
-        error: `An overnight visit must leave in the evening (from `
-          + `${to12Hour(`${EVENING_START_HOUR}:00`)}) and return the next `
-          + `morning (by ${to12Hour(`${MORNING_END_HOUR}:00`)}).`,
-      };
-    }
+    // Times are informational: an overnight trip may leave during the day.
     return {
       ok: true,
       value: {
         startDate, endDate, startTime, endTime,
-        visitType: 'overnight', dayCount: 0, nights: 1,
+        visitType: 'overnight', dayCount: span + 1, nights: span,
       },
     };
   }
 
-  // Day visit.
+  // Day visit. Only a same-day visit constrains the times, since for a
+  // multi-day one they describe first departure and last return.
   if (span === 0 && minutesOf(endTime) <= minutesOf(startTime)) {
     return {
       ok: false,
       error: 'For a same-day visit the end time must be later than the start time.',
-    };
-  }
-  if (overnightPattern) {
-    return {
-      ok: false,
-      error: 'These times look like an overnight visit. Select Outdoor '
-        + 'Overnight Visit, or correct the times.',
     };
   }
   return {
@@ -183,7 +157,8 @@ export function validateVisit(
 /* ── Payroll counts ────────────────────────────────────────────── */
 
 export interface CountableVisit {
-  start_date: string;
+  /** The return date. This, not start_date, decides the payroll month. */
+  end_date: string;
   visit_type: VisitType;
   status: VisitStatus;
   day_count: number;
@@ -193,8 +168,8 @@ export interface CountableVisit {
 export interface VisitCounts {
   /** Quantity for the Outdoor Day Visit rule. */
   dayVisitDays: number;
-  /** Quantity for the Outdoor Overnight Visit rule. */
-  overnightVisits: number;
+  /** Quantity for the Outdoor Overnight Visit rule — NIGHTS, not visits. */
+  overnightNights: number;
   /** Approved visits counted, for display. */
   visits: number;
 }
@@ -203,21 +178,26 @@ export interface VisitCounts {
  * Approved visits for one payroll month, split by category.
  *
  * Only APPROVED visits count — pending and rejected ones never reach payroll.
- * A visit belongs to the month of its start date, and validation guarantees
- * it cannot straddle two months, so no visit can contribute to two periods.
+ *
+ * A visit belongs ENTIRELY to the payroll month containing its end_date (the
+ * return date) and is never split across two months. A 29 Sep - 2 Oct trip
+ * counts wholly in October; September gets nothing for it.
  */
 export function countVisitsForMonth(
   visits: readonly CountableVisit[], month: Date,
 ): VisitCounts {
   const prefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
-  let dayVisitDays = 0, overnightVisits = 0, counted = 0;
+  let dayVisitDays = 0, overnightNights = 0, counted = 0;
   for (const v of visits) {
     if (v.status !== 'approved') continue;
-    if (!v.start_date.startsWith(prefix)) continue;
+    // The RETURN date decides the payroll month, so a cross-month trip is
+    // counted once, in the month it ended.
+    if (!v.end_date.startsWith(prefix)) continue;
     counted++;
-    // Exactly one category per visit — never both.
-    if (v.visit_type === 'overnight') overnightVisits += 1;
+    // Exactly one category per visit — never both. An overnight visit
+    // supplies nights; a day visit supplies days.
+    if (v.visit_type === 'overnight') overnightNights += v.nights;
     else dayVisitDays += v.day_count;
   }
-  return { dayVisitDays, overnightVisits, visits: counted };
+  return { dayVisitDays, overnightNights, visits: counted };
 }

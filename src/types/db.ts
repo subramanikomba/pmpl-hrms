@@ -99,6 +99,53 @@ export interface OutdoorVisit {
   is_overnight: boolean;
 }
 
+/** A payment made to an employee to reimburse expenses they already paid. */
+export interface Reimbursement {
+  id: string;
+  employee_id: string;
+  voucher_no: string;
+  /** The date money actually moved; independent of the expense month. */
+  payment_date: string;
+  amount: number;
+  payment_mode: string;
+  reference: string | null;
+  notes: string | null;
+  attachment_url: string | null;
+  attachment_shared: boolean;
+  paid_by: string | null;
+  created_at: string;
+}
+
+/** How much of one payment settled one claim. */
+export interface ReimbursementItem {
+  id: string;
+  reimbursement_id: string;
+  expense_id: string;
+  amount: number;
+}
+
+export type ReimbursementStatus =
+  | 'pending' | 'rejected' | 'accounted_against_advance'
+  | 'pending_reimbursement' | 'partially_reimbursed' | 'reimbursed';
+
+/**
+ * Derived reimbursement position of a claim, from the
+ * expense_reimbursement_status view. Totals are summed from the payment
+ * records, never stored, so they cannot drift.
+ */
+export interface ExpenseReimbursementStatus {
+  expense_id: string;
+  employee_id: string;
+  expense_date: string;
+  category: string;
+  description: string | null;
+  approved_amount: number;
+  reimbursed_amount: number;
+  outstanding_amount: number;
+  is_reimbursable: boolean;
+  reimbursement_status: ReimbursementStatus;
+}
+
 export interface LeaveRequest {
   id: string;
   employee_id: string;
@@ -114,6 +161,8 @@ export interface LeaveRequest {
 }
 
 export interface CompanyAdvance {
+  /** Payment voucher reference, e.g. AV-2026-0001. */
+  voucher_no?: string | null;
   id: string;
   employee_id: string;
   advance_date: string;
@@ -188,6 +237,10 @@ export interface PayrollRecord {
   total_deductions: number;
   net_salary: number;
   payment_date: string | null;
+  /** Storage object path of the proof-of-payment file, when attached. */
+  payment_attachment_url: string | null;
+  /** Admin opt-in: may the employee see the attachment? Defaults false. */
+  payment_attachment_shared: boolean;
   payment_mode: string | null;
   cheque_utr: string | null;
   status: PayrollStatus;

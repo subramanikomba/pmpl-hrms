@@ -29,7 +29,17 @@ function dayCount(from: string, to: string): number {
   return Math.round((t.getTime() - f.getTime()) / 86_400_000) + 1;
 }
 
-export function LeaveApprovalPage() {
+/**
+ * Leave requests and attendance corrections.
+ *
+ * `only` lets the Approvals screen render a single area per tab while keeping
+ * one implementation — the approval logic is unchanged, just scoped.
+ */
+export function LeaveApprovalPage(
+  { only }: { only?: 'corrections' | 'leave' } = {},
+) {
+  const showCorrections = only !== 'leave';
+  const showLeave = only !== 'corrections';
   const { employee } = useAuth();
   const toast = useToast();
   const [filter, setFilter] = useState<ApprovalStatus | 'all'>('pending');
@@ -136,10 +146,10 @@ export function LeaveApprovalPage() {
 
   return (
     <>
-      <PageHeader
+      {!only && <PageHeader
         title="Approvals"
         subtitle="Leave requests and attendance corrections awaiting your decision"
-      />
+      />}
 
       <Card>
         <Select label="Filter by status" value={filter}
@@ -151,7 +161,7 @@ export function LeaveApprovalPage() {
         </Select>
       </Card>
 
-      {corrections.loading ? <Spinner label="Loading attendance corrections…" />
+      {showCorrections && (corrections.loading ? <Spinner label="Loading attendance corrections…" />
         : corrections.error
           ? <Card><p className="error-text">{corrections.error}</p></Card>
           : (corrections.data ?? []).length > 0 && (
@@ -195,9 +205,9 @@ export function LeaveApprovalPage() {
                 </div>
               ))}
             </Card>
-          )}
+          ))}
 
-      {q.loading ? <Spinner label="Loading leave requests…" />
+      {showLeave && (q.loading ? <Spinner label="Loading leave requests…" />
         : q.error ? <Card><p className="error-text">{q.error}</p></Card>
         : (
           <Card title="Leave requests">
@@ -250,7 +260,7 @@ export function LeaveApprovalPage() {
                 </div>
               ))}
           </Card>
-        )}
+        ))}
 
       {rejecting && (
         <Modal open size="sm" title="Reject leave request"

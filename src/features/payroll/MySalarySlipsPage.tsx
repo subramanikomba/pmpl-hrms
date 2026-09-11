@@ -12,6 +12,7 @@ import { PdfViewerModal } from './PdfViewerModal';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { paymentStateFor } from '@/lib/payment';
+import { PaymentAttachment } from './PaymentAttachment';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -112,6 +113,8 @@ export function MySalarySlipsPage() {
                           <p>Payment date: {formatDate(p.payment_date)}</p>
                           {p.payment_mode && <p>Payment mode: {p.payment_mode}</p>}
                           {p.cheque_utr && <p>Reference: {p.cheque_utr}</p>}
+                          {/* Shown only when Admin shared it; RLS enforces it. */}
+                          <PaymentAttachment record={p} isAdmin={false} />
                         </>
                       ) : state !== 'not_processed' && (
                         <p className={state === 'overdue' ? 'error-text' : undefined}>

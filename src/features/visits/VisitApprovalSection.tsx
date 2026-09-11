@@ -17,9 +17,11 @@ import type { OutdoorVisit, WithEmployee } from '@/types/db';
 type Row = WithEmployee<OutdoorVisit>;
 
 /** "1 Overnight Visit" / "3-Day Outdoor Visit" — readable without opening it. */
-export function visitHeadline(v: Pick<OutdoorVisit, 'visit_type' | 'day_count'>): string {
+export function visitHeadline(
+  v: Pick<OutdoorVisit, 'visit_type' | 'day_count' | 'nights'>,
+): string {
   return v.visit_type === 'overnight'
-    ? '1 Overnight Visit'
+    ? `${v.day_count} Days / ${v.nights} Night${v.nights === 1 ? '' : 's'} — Overnight Visit`
     : `${v.day_count}-Day Outdoor Visit`;
 }
 
@@ -118,11 +120,17 @@ export function VisitApprovalSection() {
               {formatDate(confirming.end_date)}, {to12Hour(confirming.end_time)}
             </strong></li>
             <li><span>Location</span><strong>{confirming.location}</strong></li>
-            <li><span>Counts as</span><strong>
+            <li><span>Duration</span><strong>
+              {confirming.day_count} day{confirming.day_count === 1 ? '' : 's'}
               {confirming.visit_type === 'overnight'
-                ? '1 overnight visit'
-                : `${confirming.day_count} outdoor day visit${
-                  confirming.day_count === 1 ? '' : 's'}`}
+                && ` / ${confirming.nights} night${confirming.nights === 1 ? '' : 's'}`}
+            </strong></li>
+            <li><span>Payroll quantity</span><strong>
+              {confirming.visit_type === 'overnight'
+                ? `${confirming.nights} night${confirming.nights === 1 ? '' : 's'}`
+                + ' at the Outdoor Overnight rate'
+                : `${confirming.day_count} day${confirming.day_count === 1 ? '' : 's'}`
+                + ' at the Outdoor Day rate'}
             </strong></li>
           </ul>
           <p>

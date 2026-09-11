@@ -27,10 +27,13 @@ export function AttendanceMonthSection(
   const previousMonth = useMemo(
     () => new Date(today.getFullYear(), today.getMonth() - 1, 1), [today]);
 
-  // The previous month is offered only while it is still editable.
+  // The previous month is ALWAYS visible. Whether it can still be edited is a
+  // separate question: after the cutoff it is shown read-only. Each row is
+  // gated independently by employeeMayMark in AttendanceMonthTable, and RLS
+  // refuses the write regardless, so no extra locking is needed here.
   const previousMonthOpen = employeeMayMark(previousMonth, today);
   const [showPrevious, setShowPrevious] = useState(false);
-  const viewingPrevious = showPrevious && previousMonthOpen;
+  const viewingPrevious = showPrevious;
   const month = viewingPrevious ? previousMonth : currentMonth;
   void workingDays;
 
@@ -51,7 +54,7 @@ export function AttendanceMonthSection(
   return (
     <Card
       title={`Attendance — ${formatMonth(month)}`}
-      actions={previousMonthOpen ? (
+      actions={(
         <div className="row-end gap-sm" style={{ marginTop: 0 }}>
           <Button
             size="sm"
@@ -68,7 +71,7 @@ export function AttendanceMonthSection(
             {formatMonth(previousMonth)}
           </Button>
         </div>
-      ) : undefined}
+      )}
     >
       <p className="muted small" style={{ marginBottom: 10 }}>
         You can mark Present or Absent for past dates in this month, including
@@ -76,10 +79,17 @@ export function AttendanceMonthSection(
         past day to Present is sent to Admin for approval. Approved leave is
         set automatically and cannot be changed here.
       </p>
-      {previousMonthOpen && (
+      {previousMonthOpen ? (
         <p className="callout-warn" style={{ marginBottom: 10 }}>
           {formatMonth(previousMonth)} attendance can still be corrected until
           the {ATTENDANCE_EDIT_CUTOFF_DAY}th of {formatMonth(currentMonth)}.
+        </p>
+      ) : viewingPrevious && (
+        <p className="callout-warn" style={{ marginBottom: 10 }}>
+          🔒 {formatMonth(previousMonth)} is locked. The deadline for changes
+          was the {ATTENDANCE_EDIT_CUTOFF_DAY}th of {formatMonth(currentMonth)},
+          so this month is now view-only. Contact Admin if something needs
+          correcting.
         </p>
       )}
       {q.loading ? <Spinner label="Loading attendance…" />

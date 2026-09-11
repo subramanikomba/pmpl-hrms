@@ -82,6 +82,14 @@ export function ExpenseReportsPage() {
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
         </div>
+        {/* Dates sit together as a range, and all six filters share one grid
+            so the report starts higher up the page. */}
+        <div className="form-grid-2">
+          <TextInput label="From date" type="date" value={from}
+            onChange={(e) => setFrom(e.target.value)} />
+          <TextInput label="To date" type="date" value={to}
+            onChange={(e) => setTo(e.target.value)} />
+        </div>
         <div className="form-grid-2">
           <Select label="Client" value={clientId} onChange={(e) => setClientId(e.target.value)}>
             <option value="">All clients</option>
@@ -96,11 +104,11 @@ export function ExpenseReportsPage() {
             <option value="rejected">Rejected</option>
           </Select>
         </div>
-        <div className="form-grid-2">
-          <TextInput label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <TextInput label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <div className="row-end gap" style={{ alignItems: 'flex-end' }}>
+          <Button variant="primary" onClick={() => setApplied((n) => n + 1)}>
+            Apply filters
+          </Button>
         </div>
-        <Button variant="primary" onClick={() => setApplied((n) => n + 1)}>Apply filters</Button>
       </Card>
 
       {q.loading ? <Spinner label="Loading expenses…" />

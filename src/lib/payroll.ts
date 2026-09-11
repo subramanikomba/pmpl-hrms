@@ -330,13 +330,14 @@ export function qualifiesForAttendanceBonus(b: PaidDayBreakdown): boolean {
 export function deriveBonusCounts(args: {
   breakdown: PaidDayBreakdown;
   dayVisitDays: number;
-  overnightVisits: number;
+  /** Nights away — the Outdoor Overnight rule is paid per night. */
+  overnightNights: number;
 }): Record<string, number> {
   return {
     [RULE_ATTENDANCE_BONUS]: qualifiesForAttendanceBonus(args.breakdown) ? 1 : 0,
     [RULE_EMERGENCY_WEEKEND]: args.breakdown.workedOffDays,
     [RULE_OUTDOOR_DAY]: args.dayVisitDays,
-    [RULE_OUTDOOR_OVERNIGHT]: args.overnightVisits,
+    [RULE_OUTDOOR_OVERNIGHT]: args.overnightNights,
     // No automated record exists for site completion; Admin enters it.
     [RULE_SITE_COMPLETION]: 0,
   };

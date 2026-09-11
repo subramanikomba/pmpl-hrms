@@ -2,7 +2,7 @@
  * Salary slip generation. jsPDF and docx are imported dynamically so they are
  * code-split out of the main bundle and only downloaded when a slip is made.
  */
-import { amountInWords, formatDate, formatMonth, maskPan } from '@/lib/format';
+import { amountInWords, formatDate, formatMonth } from '@/lib/format';
 import logoUrl from '@/assets/logo.jpg';
 import type { CompanySettings, Employee, PayrollRecord } from '@/types/db';
 
@@ -35,7 +35,7 @@ async function loadLogoBytes(): Promise<Uint8Array | null> {
   }
 }
 
-async function loadLogo(): Promise<{ data: string; w: number; h: number } | null> {
+export async function loadLogo(): Promise<{ data: string; w: number; h: number } | null> {
   try {
     const res = await fetch(logoUrl);
     const blob = await res.blob();
@@ -58,8 +58,21 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
   }
 }
 
+/**
+ * Every earning actually paid, in slip order: fixed components, then the
+ * manual bonuses, then the configured allowance/bonus rules.
+ *
+ * The allowance lines come from the payroll row's own allowances_detail
+ * snapshot — the amounts payroll already calculated and saved. Nothing is
+ * recalculated here, and labels are the descriptions stored with the payroll,
+ * so a slip always reflects the rule wording in force when it was processed.
+ *
+ * These amounts are ALREADY inside p.gross_salary, which the slip prints
+ * directly. Listing them cannot double-count, because no total is ever summed
+ * from these lines.
+ */
 function earningLines(p: PayrollRecord): Line[] {
-  return ([
+  const fixed = ([
     { label: 'Basic', amount: p.basic },
     { label: 'HRA', amount: p.hra },
     { label: 'Special allowance', amount: p.special_allowance },
@@ -69,6 +82,14 @@ function earningLines(p: PayrollRecord): Line[] {
     { label: 'Performance bonus', amount: p.performance_bonus },
     { label: 'Annual bonus', amount: p.annual_bonus },
   ] satisfies Line[]).filter((l) => Number(l.amount) > 0);
+
+  // Any configured bonus with a non-zero amount, whichever rule it came from.
+  const detail = Array.isArray(p.allowances_detail) ? p.allowances_detail : [];
+  const bonuses: Line[] = detail
+    .filter((l) => Number(l.amount) > 0)
+    .map((l) => ({ label: l.description, amount: Number(l.amount) }));
+
+  return [...fixed, ...bonuses];
 }
 
 function deductionLines(p: PayrollRecord): Line[] {
@@ -77,6 +98,24 @@ function deductionLines(p: PayrollRecord): Line[] {
     { label: 'Salary advance recovered', amount: p.salary_advance_recovered },
     { label: 'Other deductions', amount: p.other_deductions },
   ] satisfies Line[]).filter((l) => Number(l.amount) > 0);
+}
+
+/**
+ * Employee particulars in slip order. Shared by both generators so the PDF
+ * and the Word document can never drift apart again — the PDF is the
+ * reference layout, and this is its order.
+ */
+function particularLines(d: SlipData): [string, string][] {
+  const { employee: e, payroll: p } = d;
+  return [
+    ['Employee', `${e.first_name} ${e.last_name}`],
+    ['Employee code', e.employee_code],
+    ['Designation', e.designation ?? '—'],
+    ['PAN', e.pan ?? '—'],
+    ['Month', formatMonth(d.month)],
+    ['Days in month', String(p.days_in_month)],
+    ['Days paid', String(p.paid_days)],
+  ];
 }
 
 export function slipFilename(d: SlipData, ext: string): string {
@@ -88,7 +127,7 @@ export function slipFilename(d: SlipData, ext: string): string {
 async function buildPdf(d: SlipData) {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const { employee: e, payroll: p, settings: c } = d;
+  const { payroll: p, settings: c } = d;
 
   // ── Geometry ────────────────────────────────────────────────
   const LM = 15;                 // left margin
@@ -156,14 +195,7 @@ async function buildPdf(d: SlipData) {
   let y = hy + 8;
   doc.setFontSize(9);
   const LBL_W = 34;               // fixed label column, so values always align
-  const info: [string, string][] = [
-    ['Employee', `${e.first_name} ${e.last_name}`],
-    ['Employee code', e.employee_code],
-    ['Designation', e.designation ?? '—'],
-    ['PAN', maskPan(e.pan)],
-    ['Days in month', String(p.days_in_month)],
-    ['Days paid', String(p.paid_days)],
-  ];
+  const info = particularLines(d);
   for (let i = 0; i < info.length; i += 2) {
     const pair = [info[i], info[i + 1]] as const;
     pair.forEach((entry, col) => {
@@ -301,6 +333,12 @@ export async function generatePdf(d: SlipData): Promise<void> {
   doc.save(slipFilename(d, 'pdf'));
 }
 
+/** Build the PDF and return raw bytes, for bulk (ZIP) download. */
+export async function generatePdfBytes(d: SlipData): Promise<ArrayBuffer> {
+  const doc = await buildPdf(d);
+  return doc.output('arraybuffer');
+}
+
 /** Build the PDF and return a blob URL, for the in-app viewer. */
 export async function generatePdfPreview(d: SlipData): Promise<string> {
   const doc = await buildPdf(d);
@@ -313,7 +351,7 @@ export async function generateDocx(d: SlipData): Promise<void> {
     TextRun, AlignmentType, WidthType, ImageRun,
   } = await import('docx');
   const logoBytes = await loadLogoBytes();
-  const { employee: e, payroll: p, settings: c } = d;
+  const { payroll: p, settings: c } = d;
 
   // Monochrome, hairline-bordered cells — no shading or colour fills.
   const cell = (
@@ -332,11 +370,18 @@ export async function generateDocx(d: SlipData): Promise<void> {
     bold, false, 'right',
   );
 
-  const infoRows = [
-    ['Employee', `${e.first_name} ${e.last_name}`, 'Designation', e.designation ?? '—'],
-    ['Employee code', e.employee_code, 'PAN', maskPan(e.pan)],
-    ['Month', formatMonth(d.month), 'Days paid', `${p.paid_days} / ${p.days_in_month}`],
-  ].map((r) => new TableRow({ children: r.map((v, i) => cell(v, i % 2 === 0, i % 2 === 0)) }));
+  // Same sequence as the PDF, paired two-per-row exactly as it lays them out.
+  const particulars = particularLines(d);
+  const infoRows = [];
+  for (let i = 0; i < particulars.length; i += 2) {
+    const a = particulars[i];
+    if (!a) continue;
+    const b = particulars[i + 1];
+    infoRows.push(new TableRow({ children: [
+      cell(a[0], true, true), cell(a[1]),
+      cell(b ? b[0] : '', true, true), cell(b ? b[1] : ''),
+    ] }));
+  }
 
   const earn = earningLines(p), ded = deductionLines(p);
   const payRows = Array.from({ length: Math.max(earn.length, ded.length) }, (_, i) => {

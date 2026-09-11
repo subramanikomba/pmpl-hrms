@@ -407,11 +407,11 @@ describe('deriveBonusCounts', () => {
 
   it('derives every rule from the records', () => {
     const c = deriveBonusCounts({
-      breakdown, dayVisitDays: 3, overnightVisits: 1 });
+      breakdown, dayVisitDays: 3, overnightNights: 4 });
     expect(c.attendance_bonus).toBe(1);
     expect(c.emergency_weekend).toBe(2);
     expect(c.outdoor_day).toBe(3);
-    expect(c.outdoor_overnight).toBe(1);
+    expect(c.outdoor_overnight).toBe(4);
     // No automated record exists for site completion.
     expect(c.site_completion).toBe(0);
   });
@@ -421,7 +421,7 @@ describe('deriveBonusCounts', () => {
     // system must not silently drop one — Admin decides.
     const c = deriveBonusCounts({
       breakdown: { ...breakdown, workedOffDays: 1 },
-      dayVisitDays: 1, overnightVisits: 0,
+      dayVisitDays: 1, overnightNights: 0,
     });
     expect(c.emergency_weekend).toBe(1);
     expect(c.outdoor_day).toBe(1);
@@ -430,7 +430,7 @@ describe('deriveBonusCounts', () => {
   it('gives zero attendance bonus when the month was not full', () => {
     const c = deriveBonusCounts({
       breakdown: { ...breakdown, absent: 2 },
-      dayVisitDays: 0, overnightVisits: 0,
+      dayVisitDays: 0, overnightNights: 0,
     });
     expect(c.attendance_bonus).toBe(0);
   });

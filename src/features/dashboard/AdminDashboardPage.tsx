@@ -148,19 +148,19 @@ export function AdminDashboardPage() {
         >
           <ul className="plain-list">
             <li>
-              <Link to="/admin/leave">Leave requests awaiting approval</Link>
+              <Link to="/admin/approvals">Leave requests awaiting approval</Link>
               <strong className={d.pendingLeave.length > 0 ? 'count-pending' : undefined}>
                 {d.pendingLeave.length}
               </strong>
             </li>
             <li>
-              <Link to="/admin/expenses">Expense claims awaiting approval</Link>
+              <Link to="/admin/approvals">Expense claims awaiting approval</Link>
               <strong className={d.pendingExp.length > 0 ? 'count-pending' : undefined}>
                 {d.pendingExp.length}
               </strong>
             </li>
             <li>
-              <Link to="/admin/leave">Attendance corrections awaiting approval</Link>
+              <Link to="/admin/approvals">Attendance corrections awaiting approval</Link>
               <strong className={d.pendingCorrections.length > 0 ? 'count-pending' : undefined}>
                 {d.pendingCorrections.length}
               </strong>
@@ -203,8 +203,8 @@ export function AdminDashboardPage() {
               <strong>{visitTotals.dayVisitDays}</strong>
             </li>
             <li>
-              <span>Approved overnight visits this month</span>
-              <strong>{visitTotals.overnightVisits}</strong>
+              <span>Approved nights away this month</span>
+              <strong>{visitTotals.overnightNights}</strong>
             </li>
           </ul>
         </Card>

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  countVisitsForMonth, isOvernightPattern, to12Hour, validateVisit,
-} from './visits';
+import { countVisitsForMonth, to12Hour, validateVisit } from './visits';
 
 const today = new Date(2026, 8, 20); // 20 Sep 2026
 
@@ -48,14 +46,6 @@ describe('dates', () => {
     expect(validateVisit(draft({ startDate: '2026-09-10', endDate: '2026-09-09' }), today))
       .toMatchObject({ ok: false });
   });
-  it('rejects a visit spanning two calendar months', () => {
-    // Payroll-period safety: a visit must belong to exactly one month.
-    const r = validateVisit(draft({
-      startDate: '2026-08-31', endDate: '2026-09-01',
-      startTime: '09:00', endTime: '18:00',
-    }), today);
-    expect(r.ok).toBe(false);
-  });
 });
 
 describe('same-day visits', () => {
@@ -75,68 +65,87 @@ describe('same-day visits', () => {
 
 describe('overnight visits', () => {
   const overnight = (o = {}) => draft({
-    visitType: 'overnight', startDate: '2026-09-10', endDate: '2026-09-11',
-    startTime: '21:00', endTime: '07:00', ...o,
+    visitType: 'overnight', startDate: '2026-09-01', endDate: '2026-09-05',
+    startTime: '10:00', endTime: '17:00', ...o,
   });
 
-  it('accepts 10 Sep 9:00 PM to 11 Sep 7:00 AM and counts 1', () => {
+  it('Day 1 to Day 5 gives 5 days and 4 nights', () => {
     const r = validateVisit(overnight(), today);
     expect(r.ok).toBe(true);
+    expect(r.ok && r.value.dayCount).toBe(5);
+    expect(r.ok && r.value.nights).toBe(4);
+  });
+
+  it('accepts a daytime departure', () => {
+    // The old evening-departure rule is gone.
+    expect(validateVisit(overnight({ startTime: '10:00', endTime: '17:00' }), today).ok)
+      .toBe(true);
+  });
+
+  it('no longer requires departure after 16:00 or return before noon', () => {
+    expect(validateVisit(overnight({ startTime: '08:00', endTime: '23:00' }), today).ok)
+      .toBe(true);
+    expect(validateVisit(overnight({ startTime: '13:30', endTime: '14:45' }), today).ok)
+      .toBe(true);
+  });
+
+  it('accepts a single night', () => {
+    const r = validateVisit(
+      overnight({ startDate: '2026-09-01', endDate: '2026-09-02' }), today);
+    expect(r.ok && r.value.dayCount).toBe(2);
     expect(r.ok && r.value.nights).toBe(1);
-    expect(r.ok && r.value.dayCount).toBe(0);
   });
 
-  it('rejects a two-night span rather than classifying it as one', () => {
-    // 10 Sep 9:00 PM -> 12 Sep 7:00 AM must not become a single overnight.
-    expect(validateVisit(overnight({ endDate: '2026-09-12' }), today).ok).toBe(false);
+  it('rejects a same-day overnight visit', () => {
+    expect(validateVisit(overnight({ endDate: '2026-09-01' }), today).ok).toBe(false);
   });
 
-  it('rejects consecutive dates that are not an overnight pattern', () => {
-    // Differing dates alone must never imply overnight.
-    expect(validateVisit(overnight({ startTime: '09:00', endTime: '17:00' }), today).ok)
-      .toBe(false);
-  });
-
-  it('rejects a same-day overnight', () => {
-    expect(validateVisit(overnight({ endDate: '2026-09-10' }), today).ok).toBe(false);
-  });
-});
-
-describe('day visits must not be overnight in disguise', () => {
-  it('rejects an evening-to-next-morning span typed as a day visit', () => {
-    const r = validateVisit(draft({
-      visitType: 'day', startDate: '2026-09-10', endDate: '2026-09-11',
-      startTime: '21:00', endTime: '07:00',
-    }), today);
-    expect(r.ok).toBe(false);
-  });
-
-  it('accepts a genuine multi-day daytime visit and counts each day', () => {
-    const r = validateVisit(draft({
-      startDate: '2026-09-10', endDate: '2026-09-12',
-      startTime: '09:00', endTime: '18:00',
+  it('accepts a cross-month overnight visit', () => {
+    const r = validateVisit(overnight({
+      startDate: '2026-08-29', endDate: '2026-09-02',
     }), today);
     expect(r.ok).toBe(true);
-    expect(r.ok && r.value.dayCount).toBe(3);
-    expect(r.ok && r.value.nights).toBe(0);
+    expect(r.ok && r.value.dayCount).toBe(5);
+    expect(r.ok && r.value.nights).toBe(4);
+  });
+
+  it('enforces the 60-day sanity cap', () => {
+    expect(validateVisit(overnight({
+      startDate: '2026-06-01', endDate: '2026-09-05',
+    }), today).ok).toBe(false);
   });
 });
 
-describe('isOvernightPattern', () => {
-  it('needs consecutive dates AND the evening/morning times', () => {
-    expect(isOvernightPattern('2026-09-10', '21:00', '2026-09-11', '07:00')).toBe(true);
-    expect(isOvernightPattern('2026-09-10', '09:00', '2026-09-11', '07:00')).toBe(false);
-    expect(isOvernightPattern('2026-09-10', '21:00', '2026-09-11', '18:00')).toBe(false);
-    expect(isOvernightPattern('2026-09-10', '21:00', '2026-09-12', '07:00')).toBe(false);
+describe('day visits', () => {
+  it('a same-day visit is 1 day and 0 nights', () => {
+    const r = validateVisit(draft({ endDate: '' }), today);
+    expect(r.ok && r.value.dayCount).toBe(1);
+    expect(r.ok && r.value.nights).toBe(0);
+  });
+
+  it('a multi-day day visit counts each day and no nights', () => {
+    const r = validateVisit(draft({
+      startDate: '2026-09-01', endDate: '2026-09-05',
+      startTime: '09:00', endTime: '18:00',
+    }), today);
+    expect(r.ok && r.value.dayCount).toBe(5);
+    expect(r.ok && r.value.nights).toBe(0);
+  });
+
+  it('accepts a cross-month day visit', () => {
+    expect(validateVisit(draft({
+      startDate: '2026-08-30', endDate: '2026-09-02',
+    }), today).ok).toBe(true);
   });
 });
 
 describe('countVisitsForMonth', () => {
   const v = (o: Record<string, unknown>) => ({
-    start_date: '2026-09-05', visit_type: 'day' as const,
+    end_date: '2026-09-05', visit_type: 'day' as const,
     status: 'approved' as const, day_count: 1, nights: 0, ...o,
   }) as never;
   const sep = new Date(2026, 8, 1);
+  const oct = new Date(2026, 9, 1);
 
   it('counts only approved visits', () => {
     const c = countVisitsForMonth([
@@ -146,17 +155,51 @@ describe('countVisitsForMonth', () => {
     expect(c.dayVisitDays).toBe(1);
   });
 
-  it('splits the two categories and never counts both', () => {
+  it('an overnight visit contributes NIGHTS, not 1', () => {
     const c = countVisitsForMonth([
-      v({ day_count: 3 }),
-      v({ visit_type: 'overnight', day_count: 0, nights: 1 }),
+      v({ visit_type: 'overnight', day_count: 5, nights: 4 }),
     ], sep);
-    expect(c.dayVisitDays).toBe(3);
-    expect(c.overnightVisits).toBe(1);
+    expect(c.overnightNights).toBe(4);
   });
 
-  it('ignores visits from another payroll month', () => {
-    const c = countVisitsForMonth([v({ start_date: '2026-08-28' })], sep);
-    expect(c.visits).toBe(0);
+  it('keeps the two categories mutually exclusive', () => {
+    // A 5-day / 4-night trip must not also add 5 outdoor day visits.
+    const c = countVisitsForMonth([
+      v({ visit_type: 'overnight', day_count: 5, nights: 4 }),
+    ], sep);
+    expect(c.dayVisitDays).toBe(0);
+
+    const d = countVisitsForMonth([
+      v({ visit_type: 'day', day_count: 3, nights: 0 }),
+    ], sep);
+    expect(d.overnightNights).toBe(0);
+    expect(d.dayVisitDays).toBe(3);
+  });
+
+  it('allocates a cross-month visit to the month it RETURNED in', () => {
+    // 29 Sep -> 2 Oct: 4 days, 3 nights. October gets all of it.
+    const visit = v({
+      end_date: '2026-10-02', visit_type: 'overnight', day_count: 4, nights: 3,
+    });
+    expect(countVisitsForMonth([visit], sep).overnightNights).toBe(0);
+    expect(countVisitsForMonth([visit], sep).visits).toBe(0);
+    expect(countVisitsForMonth([visit], oct).overnightNights).toBe(3);
+    expect(countVisitsForMonth([visit], oct).visits).toBe(1);
+  });
+
+  it('allocates a 30 Sep -> 1 Oct visit to October', () => {
+    const visit = v({
+      end_date: '2026-10-01', visit_type: 'overnight', day_count: 2, nights: 1,
+    });
+    expect(countVisitsForMonth([visit], sep).overnightNights).toBe(0);
+    expect(countVisitsForMonth([visit], oct).overnightNights).toBe(1);
+  });
+
+  it('still aggregates a same-month visit correctly', () => {
+    const c = countVisitsForMonth([
+      v({ end_date: '2026-09-12', visit_type: 'overnight', day_count: 3, nights: 2 }),
+    ], sep);
+    expect(c.overnightNights).toBe(2);
+    expect(c.visits).toBe(1);
   });
 });

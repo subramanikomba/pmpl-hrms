@@ -6,10 +6,10 @@
  */
 import { supabase } from './supabase';
 import { SUPABASE_URL } from './config';
-import { isoDate, monthStart } from './payroll';
+import { isoDate, monthStart, round2 } from './payroll';
 import type {
   ClientLocation, ClientWithLocations, AttendanceChangeRequest, AttendanceStatus,
-  OutdoorVisit,
+  OutdoorVisit, Reimbursement, ReimbursementItem, ExpenseReimbursementStatus,
   AllowanceRule, AttendanceRecord, ClientCompany, CompanyAdvance,
   CompanyExpense, CompanyHoliday, CompanySettings, Employee, LeaveRequest,
   LedgerRow, PayrollRecord, SalaryAdvance, SalaryAdvanceRecovery,
@@ -32,6 +32,11 @@ const EMP_FIELDS = 'employee_code, first_name, last_name, designation';
 export const RECEIPT_BUCKET = 'expense-receipts';
 export const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
 export const RECEIPT_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
+
+/** Private bucket holding proof-of-payment files attached to payroll rows. */
+export const PAYMENT_BUCKET = 'payment-attachments';
+export const PAYMENT_MAX_BYTES = 5 * 1024 * 1024;
+export const PAYMENT_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const;
 
 /* ── Employees ─────────────────────────────────────────────────── */
 export const employeesApi = {
@@ -75,6 +80,8 @@ export const employeesApi = {
    */
   async create(input: {
     email: string; password: string; first_name: string; last_name: string;
+    /** Omit to let the database trigger assign the next automatic code. */
+    employee_code?: string;
     designation?: string; pan?: string; phone?: string; is_admin: boolean;
   }): Promise<void> {
     const { data: { session } } = await supabase.auth.getSession();
@@ -235,16 +242,14 @@ export const outdoorVisitApi = {
   Promise<WithEmployee<OutdoorVisit>[]> {
     let q = supabase.from('outdoor_visits')
       .select(`*, employees!employee_id(${EMP_FIELDS})`)
-      .order('start_date', { ascending: false });
-    if (range?.from) q = q.gte('start_date', range.from);
-    if (range?.to) q = q.lte('start_date', range.to);
+      .order('end_date', { ascending: false });
+    // Bounded by END date so the admin report matches the payroll month a
+    // visit actually counts in.
+    if (range?.from) q = q.gte('end_date', range.from);
+    if (range?.to) q = q.lte('end_date', range.to);
     if (range?.employeeId) q = q.eq('employee_id', range.employeeId);
     return unwrapList<WithEmployee<OutdoorVisit>>(await q);
   },
-  /**
-   * Visits overlapping a payroll month, used to suggest allowance quantities.
-   * Bounded by start_date so a visit is counted in the month it began.
-   */
   async listPending(): Promise<WithEmployee<OutdoorVisit>[]> {
     return unwrapList<WithEmployee<OutdoorVisit>>(
       await supabase.from('outdoor_visits')
@@ -252,12 +257,17 @@ export const outdoorVisitApi = {
         .eq('status', 'pending').order('start_date', { ascending: false }),
     );
   },
+  /**
+   * Visits belonging to one payroll month, filtered by END date — a visit
+   * counts entirely in the month it returned in. Filtering by start_date
+   * would miss a trip that began in the previous month.
+   */
   async listForMonth(month: Date): Promise<OutdoorVisit[]> {
     const from = isoDate(monthStart(month));
     const to = isoDate(new Date(month.getFullYear(), month.getMonth() + 1, 0));
     return unwrapList<OutdoorVisit>(
       await supabase.from('outdoor_visits').select('*')
-        .gte('start_date', from).lte('start_date', to),
+        .gte('end_date', from).lte('end_date', to),
     );
   },
   async create(input: OutdoorVisitInput): Promise<void> {
@@ -293,6 +303,157 @@ export const outdoorVisitApi = {
   },
   async remove(id: string): Promise<void> {
     const { error } = await supabase.from('outdoor_visits').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+};
+
+/* ── Employee reimbursement ────────────────────────────────────── */
+/** Private bucket holding proof of a reimbursement payment. */
+export const REIMB_BUCKET = 'reimbursement-proofs';
+
+export interface ReimbursementLine { expense_id: string; amount: number }
+
+export const reimbursementApi = {
+  /**
+   * Claims and their derived reimbursement position, from the database view.
+   * Advance-accounted claims come back too, flagged not reimbursable, so the
+   * Admin can see why they are not payable rather than wondering where they
+   * went.
+   */
+  async claimStatus(opts?: { employeeId?: string; from?: string; to?: string }):
+  Promise<ExpenseReimbursementStatus[]> {
+    let q = supabase.from('expense_reimbursement_status').select('*')
+      .order('expense_date');
+    if (opts?.employeeId) q = q.eq('employee_id', opts.employeeId);
+    if (opts?.from) q = q.gte('expense_date', opts.from);
+    if (opts?.to) q = q.lte('expense_date', opts.to);
+    return unwrapList<ExpenseReimbursementStatus>(await q);
+  },
+
+  async listAll(employeeId?: string): Promise<WithEmployee<Reimbursement>[]> {
+    let q = supabase.from('reimbursements')
+      .select(`*, employees!employee_id(${EMP_FIELDS})`)
+      .order('payment_date', { ascending: false });
+    if (employeeId) q = q.eq('employee_id', employeeId);
+    return unwrapList<WithEmployee<Reimbursement>>(await q);
+  },
+
+  /** The employee's own payments. RLS restricts this to them. */
+  async listFor(employeeId: string): Promise<Reimbursement[]> {
+    return unwrapList<Reimbursement>(
+      await supabase.from('reimbursements').select('*')
+        .eq('employee_id', employeeId)
+        .order('payment_date', { ascending: false }),
+    );
+  },
+
+  async itemsFor(reimbursementId: string): Promise<ReimbursementItem[]> {
+    return unwrapList<ReimbursementItem>(
+      await supabase.from('reimbursement_items').select('*')
+        .eq('reimbursement_id', reimbursementId),
+    );
+  },
+
+  /**
+   * Record one payment settling one or more claims.
+   *
+   * The header is written first, then a line per claim. Postgres checks the
+   * two agree at COMMIT (deferred assertion) and refuses any line that would
+   * over-reimburse a claim, so a bad split cannot be half-saved. If the lines
+   * fail, the header is deleted so no orphan payment or voucher number is
+   * left behind.
+   */
+  async record(input: {
+    employee_id: string;
+    payment_date: string;
+    payment_mode: string;
+    reference: string | null;
+    notes: string | null;
+    lines: ReimbursementLine[];
+    proof?: File | null;
+    shared: boolean;
+    paid_by: string;
+  }): Promise<Reimbursement> {
+    const lines = input.lines.filter((l) => l.amount > 0);
+    if (lines.length === 0) throw new Error('Enter an amount against at least one claim.');
+    const total = round2(lines.reduce((t, l) => t + l.amount, 0));
+
+    const year = Number(input.payment_date.slice(0, 4));
+    const { data: voucherNo, error: vErr } = await supabase
+      .rpc('next_voucher_no', { p_prefix: 'RV', p_year: year });
+    if (vErr || !voucherNo) {
+      throw new Error(vErr?.message ?? 'Could not issue a voucher number');
+    }
+
+    const { data: header, error: hErr } = await supabase.from('reimbursements')
+      .insert({
+        employee_id: input.employee_id,
+        voucher_no: voucherNo,
+        payment_date: input.payment_date,
+        amount: total,
+        payment_mode: input.payment_mode,
+        reference: input.reference,
+        notes: input.notes,
+        attachment_shared: input.shared,
+        paid_by: input.paid_by,
+      }).select().single();
+    if (hErr || !header) throw new Error(hErr?.message ?? 'Could not record the payment');
+
+    try {
+      const { error: iErr } = await supabase.from('reimbursement_items')
+        .insert(lines.map((l) => ({
+          reimbursement_id: header.id,
+          expense_id: l.expense_id,
+          amount: l.amount,
+        })));
+      if (iErr) throw new Error(iErr.message);
+
+      if (input.proof) {
+        const path = await reimbursementApi.uploadProof(
+          input.employee_id, header.id, input.proof);
+        const { error: uErr } = await supabase.from('reimbursements')
+          .update({ attachment_url: path }).eq('id', header.id);
+        if (uErr) throw new Error(uErr.message);
+        return { ...header, attachment_url: path } as Reimbursement;
+      }
+      return header as Reimbursement;
+    } catch (e) {
+      // Never leave a payment recorded without the claims it settled.
+      await supabase.from('reimbursements').delete().eq('id', header.id);
+      throw e;
+    }
+  },
+
+  async uploadProof(
+    employeeId: string, reimbursementId: string, file: File,
+  ): Promise<string> {
+    if (file.size > PAYMENT_MAX_BYTES) {
+      throw new Error('The file must be 5 MB or smaller.');
+    }
+    if (!(PAYMENT_TYPES as readonly string[]).includes(file.type)) {
+      throw new Error('Attach a JPG, PNG or PDF file.');
+    }
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
+    const path = `${employeeId}/${reimbursementId}.${ext}`;
+    const { error } = await supabase.storage.from(REIMB_BUCKET)
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) throw new Error(`Proof upload failed: ${error.message}`);
+    return path;
+  },
+
+  /** Short-lived link to the proof. RLS decides who may open it. */
+  async proofUrl(path: string): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from(REIMB_BUCKET).createSignedUrl(path, 300);
+    if (error || !data) {
+      throw new Error(error?.message ?? 'Could not open the attachment');
+    }
+    return data.signedUrl;
+  },
+
+  async setProofShared(id: string, shared: boolean): Promise<void> {
+    const { error } = await supabase.from('reimbursements')
+      .update({ attachment_shared: shared }).eq('id', id);
     if (error) throw new Error(error.message);
   },
 };
@@ -545,12 +706,49 @@ export const advanceApi = {
         .eq('employee_id', employeeId).order('txn_date'),
     );
   },
+  async getOne(id: string): Promise<CompanyAdvance | null> {
+    const { data, error } = await supabase.from('company_advances')
+      .select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as CompanyAdvance) ?? null;
+  },
+  /**
+   * The advance's voucher number, issuing and storing one if it predates
+   * vouchers. Issued once and then permanent, so the same advance always
+   * reprints the same voucher.
+   */
+  async ensureVoucherNo(advance: CompanyAdvance): Promise<string> {
+    if (advance.voucher_no) return advance.voucher_no;
+    const voucher_no = await advanceApi.issueVoucherNo(
+      Number(advance.advance_date.slice(0, 4)));
+    const { error } = await supabase.from('company_advances')
+      .update({ voucher_no }).eq('id', advance.id);
+    if (error) throw new Error(error.message);
+    return voucher_no;
+  },
+  /** Issue an advance voucher number, e.g. AV-2026-0001. */
+  async issueVoucherNo(year: number): Promise<string> {
+    const { data, error } = await supabase
+      .rpc('next_voucher_no', { p_prefix: 'AV', p_year: year });
+    if (error || !data) {
+      throw new Error(error?.message ?? 'Could not issue a voucher number');
+    }
+    return data as string;
+  },
+  /**
+   * Record an advance. A voucher number is issued so the payment has a
+   * permanent reference; existing advance accounting is otherwise unchanged.
+   */
   async give(input: {
     employee_id: string; advance_date: string; amount: number;
     reference: string; note: string; given_by: string;
-  }): Promise<void> {
-    const { error } = await supabase.from('company_advances').insert(input);
-    if (error) throw new Error(error.message);
+  }): Promise<CompanyAdvance> {
+    const voucher_no = await advanceApi.issueVoucherNo(
+      Number(input.advance_date.slice(0, 4)));
+    const { data, error } = await supabase.from('company_advances')
+      .insert({ ...input, voucher_no }).select().single();
+    if (error || !data) throw new Error(error?.message ?? 'Could not record the advance');
+    return data as CompanyAdvance;
   },
 };
 
@@ -572,6 +770,35 @@ export const salaryAdvanceApi = {
     let q = supabase.from('salary_advance_recoveries').select('*');
     if (employeeId) q = q.eq('employee_id', employeeId);
     return unwrapList<SalaryAdvanceRecovery>(await q);
+  },
+  async getOne(id: string): Promise<CompanyAdvance | null> {
+    const { data, error } = await supabase.from('company_advances')
+      .select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as CompanyAdvance) ?? null;
+  },
+  /**
+   * The advance's voucher number, issuing and storing one if it predates
+   * vouchers. Issued once and then permanent, so the same advance always
+   * reprints the same voucher.
+   */
+  async ensureVoucherNo(advance: CompanyAdvance): Promise<string> {
+    if (advance.voucher_no) return advance.voucher_no;
+    const voucher_no = await advanceApi.issueVoucherNo(
+      Number(advance.advance_date.slice(0, 4)));
+    const { error } = await supabase.from('company_advances')
+      .update({ voucher_no }).eq('id', advance.id);
+    if (error) throw new Error(error.message);
+    return voucher_no;
+  },
+  /** Issue an advance voucher number, e.g. AV-2026-0001. */
+  async issueVoucherNo(year: number): Promise<string> {
+    const { data, error } = await supabase
+      .rpc('next_voucher_no', { p_prefix: 'AV', p_year: year });
+    if (error || !data) {
+      throw new Error(error?.message ?? 'Could not issue a voucher number');
+    }
+    return data as string;
   },
   async give(input: {
     employee_id: string; advance_date: string; amount: number;
@@ -670,12 +897,71 @@ export const payrollApi = {
    * Record payment details and move the record to 'paid'. Only a processed
    * record can be paid — a draft has no confirmed figures to pay against.
    */
+  /**
+   * Record a payment, optionally attaching proof of it.
+   *
+   * The attachment is uploaded first: if it fails the payment is not marked
+   * paid, rather than leaving a paid row pointing at a missing file. Sharing
+   * with the employee is opt-in and defaults to false.
+   */
   async recordPayment(id: string, payment: {
     payment_date: string; payment_mode: string; cheque_utr: string | null;
+  }, attachment?: {
+    file: File | null; shared: boolean; employeeId: string;
   }): Promise<void> {
+    const patch: Record<string, unknown> = { ...payment, status: 'paid' };
+
+    if (attachment?.file) {
+      const path = await payrollApi.uploadAttachment(
+        attachment.employeeId, id, attachment.file);
+      patch.payment_attachment_url = path;
+    }
+    if (attachment) patch.payment_attachment_shared = attachment.shared;
+
+    const { error } = await supabase.from('payroll').update(patch)
+      .eq('id', id).eq('status', 'processed');
+    if (error) throw new Error(error.message);
+  },
+  /** Upload (or replace) the proof-of-payment file. Admin only, via RLS. */
+  async uploadAttachment(
+    employeeId: string, payrollId: string, file: File,
+  ): Promise<string> {
+    if (file.size > PAYMENT_MAX_BYTES) {
+      throw new Error('The file must be 5 MB or smaller.');
+    }
+    if (!(PAYMENT_TYPES as readonly string[]).includes(file.type)) {
+      throw new Error('Attach a JPG, PNG or PDF file.');
+    }
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
+    const path = `${employeeId}/${payrollId}.${ext}`;
+    const { error } = await supabase.storage.from(PAYMENT_BUCKET)
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) throw new Error(`Attachment upload failed: ${error.message}`);
+    return path;
+  },
+  /** Short-lived link to a payment attachment. RLS decides who may open it. */
+  async attachmentUrl(path: string): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from(PAYMENT_BUCKET).createSignedUrl(path, 300);
+    if (error || !data) {
+      throw new Error(error?.message ?? 'Could not open the attachment');
+    }
+    return data.signedUrl;
+  },
+  /** Change only the sharing flag on an existing payment. */
+  async setAttachmentShared(id: string, shared: boolean): Promise<void> {
+    const { error } = await supabase.from('payroll')
+      .update({ payment_attachment_shared: shared }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  /** Remove the attachment from storage and unlink it from the payment. */
+  async removeAttachment(id: string, path: string): Promise<void> {
+    const { error: rmErr } = await supabase.storage
+      .from(PAYMENT_BUCKET).remove([path]);
+    if (rmErr) throw new Error(rmErr.message);
     const { error } = await supabase.from('payroll').update({
-      ...payment, status: 'paid',
-    }).eq('id', id).eq('status', 'processed');
+      payment_attachment_url: null, payment_attachment_shared: false,
+    }).eq('id', id);
     if (error) throw new Error(error.message);
   },
   /** Undo a payment entry, returning the record to 'processed'. */
