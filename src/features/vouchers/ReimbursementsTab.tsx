@@ -12,7 +12,11 @@ import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { Select } from '@/components/ui/Field';
 import { RecordReimbursementModal } from './RecordReimbursementModal';
-import { generateVoucherPdf } from './voucherDocument';
+import {
+  generateVoucherPdf, generateVoucherPreview, type VoucherData,
+} from './voucherDocument';
+import { PdfViewerModal } from '@/features/payroll/PdfViewerModal';
+import { EyeIcon } from '@/components/ui/Icons';
 import type { Employee, ExpenseReimbursementStatus } from '@/types/db';
 
 /**
@@ -30,6 +34,7 @@ export function ReimbursementsTab() {
   const [employeeId, setEmployeeId] = useState('');
   const [paying, setPaying] = useState<Employee | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<VoucherData | null>(null);
 
   const q = useQuery(async () => {
     const [employees, claims, payments] = await Promise.all([
@@ -73,7 +78,8 @@ export function ReimbursementsTab() {
   const excluded = claims.filter(
     (c) => c.reimbursement_status === 'accounted_against_advance');
 
-  async function downloadVoucher(paymentId: string) {
+  /** Build the voucher and open it in the viewer; download is offered there. */
+  async function viewVoucher(paymentId: string) {
     setBusy(paymentId);
     try {
       const payment = payments.find((p) => p.id === paymentId);
@@ -103,7 +109,7 @@ export function ReimbursementsTab() {
         };
       });
 
-      await generateVoucherPdf({
+      setViewing({
         kind: 'reimbursement',
         voucherNo: payment.voucher_no,
         paymentDate: payment.payment_date,
@@ -268,10 +274,11 @@ export function ReimbursementsTab() {
                             {p.attachment_shared ? 'Proof shared' : 'Proof: admin only'}
                           </Badge>
                         )}{' '}
-                        <Button size="sm" variant="secondary"
+                        <Button size="sm" variant="ghost"
                           disabled={busy === p.id}
-                          onClick={() => void downloadVoucher(p.id)}>
-                          Download
+                          title="View voucher" aria-label="View voucher"
+                          onClick={() => void viewVoucher(p.id)}>
+                          <EyeIcon />
                         </Button>
                       </td>
                     </tr>
@@ -281,6 +288,15 @@ export function ReimbursementsTab() {
           </div>
         )}
       </Card>
+
+      {viewing && (
+        <PdfViewerModal
+          title={`Payment voucher — ${viewing.voucherNo}`}
+          build={() => generateVoucherPreview(viewing)}
+          onClose={() => setViewing(null)}
+          onDownload={() => void generateVoucherPdf(viewing)}
+        />
+      )}
 
       {paying && (
         <RecordReimbursementModal

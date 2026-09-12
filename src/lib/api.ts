@@ -6,7 +6,7 @@
  */
 import { supabase } from './supabase';
 import { SUPABASE_URL } from './config';
-import { isoDate, monthStart, round2 } from './payroll';
+import { isoDate, monthStart } from './payroll';
 import type {
   ClientLocation, ClientWithLocations, AttendanceChangeRequest, AttendanceStatus,
   OutdoorVisit, Reimbursement, ReimbursementItem, ExpenseReimbursementStatus,
@@ -357,11 +357,13 @@ export const reimbursementApi = {
   /**
    * Record one payment settling one or more claims.
    *
-   * The header is written first, then a line per claim. Postgres checks the
-   * two agree at COMMIT (deferred assertion) and refuses any line that would
-   * over-reimburse a claim, so a bad split cannot be half-saved. If the lines
-   * fail, the header is deleted so no orphan payment or voucher number is
-   * left behind.
+   * The header and its per-claim lines are written by a single database
+   * function so the whole payment is ONE transaction. Two separate REST
+   * calls would be two transactions, and the deferred total assertion would
+   * fire on the header alone with no lines present.
+   *
+   * The database still refuses any line that is not an approved, unaccounted
+   * claim, or that exceeds its outstanding balance.
    */
   async record(input: {
     employee_id: string;
@@ -376,7 +378,6 @@ export const reimbursementApi = {
   }): Promise<Reimbursement> {
     const lines = input.lines.filter((l) => l.amount > 0);
     if (lines.length === 0) throw new Error('Enter an amount against at least one claim.');
-    const total = round2(lines.reduce((t, l) => t + l.amount, 0));
 
     const year = Number(input.payment_date.slice(0, 4));
     const { data: voucherNo, error: vErr } = await supabase
@@ -385,43 +386,35 @@ export const reimbursementApi = {
       throw new Error(vErr?.message ?? 'Could not issue a voucher number');
     }
 
-    const { data: header, error: hErr } = await supabase.from('reimbursements')
-      .insert({
-        employee_id: input.employee_id,
-        voucher_no: voucherNo,
-        payment_date: input.payment_date,
-        amount: total,
-        payment_mode: input.payment_mode,
-        reference: input.reference,
-        notes: input.notes,
-        attachment_shared: input.shared,
-        paid_by: input.paid_by,
-      }).select().single();
-    if (hErr || !header) throw new Error(hErr?.message ?? 'Could not record the payment');
-
-    try {
-      const { error: iErr } = await supabase.from('reimbursement_items')
-        .insert(lines.map((l) => ({
-          reimbursement_id: header.id,
-          expense_id: l.expense_id,
-          amount: l.amount,
-        })));
-      if (iErr) throw new Error(iErr.message);
-
-      if (input.proof) {
-        const path = await reimbursementApi.uploadProof(
-          input.employee_id, header.id, input.proof);
-        const { error: uErr } = await supabase.from('reimbursements')
-          .update({ attachment_url: path }).eq('id', header.id);
-        if (uErr) throw new Error(uErr.message);
-        return { ...header, attachment_url: path } as Reimbursement;
-      }
-      return header as Reimbursement;
-    } catch (e) {
-      // Never leave a payment recorded without the claims it settled.
-      await supabase.from('reimbursements').delete().eq('id', header.id);
-      throw e;
+    const { data, error } = await supabase.rpc('record_reimbursement', {
+      p_employee_id: input.employee_id,
+      p_voucher_no: voucherNo,
+      p_payment_date: input.payment_date,
+      p_payment_mode: input.payment_mode,
+      p_reference: input.reference,
+      p_notes: input.notes,
+      p_paid_by: input.paid_by,
+      p_shared: input.shared,
+      p_lines: lines.map((l) => ({
+        expense_id: l.expense_id, amount: l.amount,
+      })),
+    });
+    if (error || !data) {
+      throw new Error(error?.message ?? 'Could not record the payment');
     }
+    const header = data as Reimbursement;
+
+    // The proof is attached afterwards: a failed upload must not lose a
+    // payment that is already correctly recorded.
+    if (input.proof) {
+      const path = await reimbursementApi.uploadProof(
+        input.employee_id, header.id, input.proof);
+      const { error: uErr } = await supabase.from('reimbursements')
+        .update({ attachment_url: path }).eq('id', header.id);
+      if (uErr) throw new Error(uErr.message);
+      return { ...header, attachment_url: path };
+    }
+    return header;
   },
 
   async uploadProof(

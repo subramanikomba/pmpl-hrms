@@ -47,10 +47,8 @@ export function RecordReimbursementModal(
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [proof, setProof] = useState<File | null>(null);
-  const [shared, setShared] = useState(false);
+  const [shared, setShared] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const refRequired = mode !== 'Cash';
 
   const lines = claims
     .map((c) => ({ claim: c, amount: Number(amounts[c.expense_id] ?? 0) || 0 }))
@@ -76,9 +74,6 @@ export function RecordReimbursementModal(
     }
     if (overpaid.length > 0) {
       toast.error('An amount is more than the claim’s outstanding balance.'); return;
-    }
-    if (refRequired && !reference.trim()) {
-      toast.error('Enter the UTR or reference number.'); return;
     }
 
     setSaving(true);
@@ -215,10 +210,11 @@ export function RecordReimbursementModal(
       </div>
 
       <TextInput
-        label={mode === 'Cheque' ? 'Cheque number' : 'UTR / reference number'}
+        label={mode === 'Cheque'
+          ? 'Cheque number (optional)' : 'UTR / reference number (optional)'}
         value={reference}
         onChange={(e) => setReference(e.target.value)}
-        hint={refRequired ? 'Appears on the voucher' : 'Optional for cash payments'}
+        hint="Appears on the voucher when entered."
       />
 
       <TextArea label="Notes (optional)" value={notes}
@@ -249,7 +245,7 @@ export function RecordReimbursementModal(
         <span>
           Share payment proof with employee
           <span className="radio-note">
-            Leave unchecked to keep it visible to Admin only.
+            Untick to keep the proof visible to Admin only.
           </span>
         </span>
       </label>

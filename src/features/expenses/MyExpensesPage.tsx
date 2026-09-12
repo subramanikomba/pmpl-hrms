@@ -5,8 +5,11 @@ import { useToast } from '@/components/ui/ToastProvider';
 import {
   advanceApi, clientApi, expenseApi, reimbursementApi, settingsApi,
 } from '@/lib/api';
-import { generateVoucherPdf } from '@/features/vouchers/voucherDocument';
+import {
+  generateVoucherPdf, generateVoucherPreview, type VoucherData,
+} from '@/features/vouchers/voucherDocument';
 import { EyeIcon } from '@/components/ui/Icons';
+import { PdfViewerModal } from '@/features/payroll/PdfViewerModal';
 import { ClientLocationSelect } from '@/components/ui/ClientLocationSelect';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate } from '@/lib/payroll';
@@ -39,6 +42,7 @@ export function MyExpensesPage() {
   const [description, setDescription] = useState('');
   const [receipt, setReceipt] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [viewingVoucher, setViewingVoucher] = useState<VoucherData | null>(null);
   const [paidFromAdvance, setPaidFromAdvance] = useState(false);
   // id of the pending claim being edited; null = creating a new one
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -80,7 +84,8 @@ export function MyExpensesPage() {
    * Rebuild the employee's own voucher from the stored payment. RLS restricts
    * both the payment and its lines to this employee.
    */
-  async function downloadVoucher(paymentId: string) {
+  /** Build the voucher and open it in the viewer; download is offered there. */
+  async function viewVoucher(paymentId: string) {
     const payment = reimbursements.find((p) => p.id === paymentId);
     if (!payment || !employee) return;
     try {
@@ -88,7 +93,7 @@ export function MyExpensesPage() {
         settingsApi.get(),
         reimbursementApi.itemsFor(payment.id),
       ]);
-      await generateVoucherPdf({
+      setViewingVoucher({
         kind: 'reimbursement',
         voucherNo: payment.voucher_no,
         paymentDate: payment.payment_date,
@@ -341,7 +346,7 @@ export function MyExpensesPage() {
                       <td style={{ textAlign: 'right' }}>
                         <Button size="sm" variant="ghost"
                           title="View voucher" aria-label="View voucher"
-                          onClick={() => void downloadVoucher(p.id)}>
+                          onClick={() => void viewVoucher(p.id)}>
                           <EyeIcon />
                         </Button>
                       </td>
@@ -352,6 +357,15 @@ export function MyExpensesPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {viewingVoucher && (
+        <PdfViewerModal
+          title={`Payment voucher — ${viewingVoucher.voucherNo}`}
+          build={() => generateVoucherPreview(viewingVoucher)}
+          onClose={() => setViewingVoucher(null)}
+          onDownload={() => void generateVoucherPdf(viewingVoucher)}
+        />
       )}
 
       <Card title="My expense history">
