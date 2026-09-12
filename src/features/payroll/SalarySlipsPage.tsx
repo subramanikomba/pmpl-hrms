@@ -37,8 +37,7 @@ export function SalarySlipsPage() {
   }, []);
 
   const preview = useQuery(
-    () => employeeId && employeeId !== 'ALL'
-      ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
+    () => employeeId ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
     [employeeId, monthValue],
   );
 
@@ -143,14 +142,15 @@ export function SalarySlipsPage() {
       <PageHeader title="Salary slips" subtitle="Generate a PDF or Word salary slip" />
 
       <Card>
-        {/* Month first: Admin picks the period, then who within it. */}
-        <div className="form-grid-2">
+        {/* Month first: Admin picks the period, then who within it. Kept on
+            one compact row; the month field is narrow so the two sit together
+            rather than spanning the card. */}
+        <div className="filter-row">
           <TextInput label="Month" type="month" value={monthValue}
             onChange={(e) => setMonthValue(e.target.value)} />
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
-            <option value="ALL">All employees</option>
             {(refs.data?.employees ?? []).map((e) => (
               <option key={e.id} value={e.id}>
                 {e.employee_code} — {e.first_name} {e.last_name}
@@ -159,21 +159,7 @@ export function SalarySlipsPage() {
           </Select>
         </div>
 
-        {employeeId === 'ALL' ? (
-          <div className="slip-preview">
-            <p className="muted small">
-              Downloads one ZIP containing a PDF slip for every employee whose
-              payment for {formatMonth(month)} has been recorded. Word files
-              are not included.
-            </p>
-            <div className="row-end gap">
-              <Button variant="primary" disabled={bulkBusy}
-                onClick={() => void downloadAll()}>
-                {bulkBusy ? 'Preparing…' : 'Download all salary slips (ZIP)'}
-              </Button>
-            </div>
-          </div>
-        ) : employeeId && (
+        {employeeId && (
           preview.loading ? <Spinner />
             : preview.data ? (
               <div className="slip-preview">

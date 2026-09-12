@@ -14,12 +14,14 @@ import { Spinner } from '@/components/ui/Spinner';
  * Download action saves, so the document shown is the real salary slip.
  */
 export function PdfViewerModal(
-  { title, build, onClose, onDownload }: {
+  { title, build, onClose, onDownload, extraAction }: {
     title: string;
     /** Produces a blob URL for the document to display. */
     build: () => Promise<string>;
     onClose: () => void;
     onDownload?: () => void;
+    /** Optional secondary action, e.g. opening a related report. */
+    extraAction?: { label: string; onClick: () => void };
   },
 ) {
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +117,11 @@ export function PdfViewerModal(
         </>
       )}
       <div className="row-end gap">
+        {extraAction && (
+          <Button variant="ghost" onClick={extraAction.onClick}>
+            {extraAction.label}
+          </Button>
+        )}
         {onDownload && (
           <Button variant="secondary" onClick={onDownload}>Download PDF</Button>
         )}

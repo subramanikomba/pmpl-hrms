@@ -201,11 +201,31 @@ export function PayrollPage() {
     }));
   }
 
+  /**
+   * The allowance line as it was saved, for a processed or paid row.
+   *
+   * A processed payroll is what the employee was actually paid, so revisiting
+   * it must show the rate and amount it was processed with — never today's
+   * settings. Returns null for a draft or an unsaved row, which are
+   * provisional and do follow current settings.
+   */
+  function savedLineFor(emp: Employee, ruleKey: string): AllowanceLine | null {
+    const row = payrollByEmployee.get(emp.id);
+    if (!row || row.status === 'draft') return null;
+    const detail = Array.isArray(row.allowances_detail)
+      ? row.allowances_detail as AllowanceLine[] : [];
+    return detail.find((l) => l.rule_key === ruleKey) ?? null;
+  }
+
   /** Allowance lines from the configured rules and the Admin's quantities. */
   function allowanceLinesFor(emp: Employee, basic: number): AllowanceLine[] {
     const e = editsFor(emp);
     const system = systemCountsFor(emp);
     return activeRules.map((rule) => {
+      // A processed row reports exactly what was saved — never recomputed.
+      const saved = savedLineFor(emp, rule.rule_key);
+      if (saved) return saved;
+
       const quantity = Number(e.allowanceQty[rule.rule_key] ?? 0) || 0;
       const systemQuantity = system[rule.rule_key] ?? 0;
       return {
@@ -441,23 +461,39 @@ export function PayrollPage() {
               </thead>
               <tbody>
                 {activeRules.map((rule) => {
-                  const qty = Number(ed.allowanceQty[rule.rule_key] ?? 0) || 0;
-                  const amt = computeAllowanceAmount(
-                    proratedBasic, Number(rule.rate_percent), qty);
+                  const saved = savedLineFor(emp, rule.rule_key);
+                  const liveRate = Number(rule.rate_percent);
+                  // Processed rows report the rate and amount they were
+                  // processed with; drafts follow current settings.
+                  const rate = saved ? Number(saved.rate_percent) : liveRate;
+                  const qty = saved
+                    ? Number(saved.quantity)
+                    : Number(ed.allowanceQty[rule.rule_key] ?? 0) || 0;
+                  const amt = saved
+                    ? Number(saved.amount)
+                    : computeAllowanceAmount(proratedBasic, liveRate, qty);
+                  const settingMoved = !!saved && rate !== liveRate;
                   return (
                     <tr key={rule.rule_key}>
                       <td>{rule.description}</td>
-                      <td className="num">{rule.rate_percent}%</td>
                       <td className="num">
-                        <input className="cell-input" type="number" min="0" step="1"
-                          value={ed.allowanceQty[rule.rule_key] ?? ''}
-                          placeholder="0"
-                          onChange={(ev) => setEdit(emp.id, {
-                            allowanceQty: {
-                              ...ed.allowanceQty,
-                              [rule.rule_key]: ev.target.value,
-                            },
-                          })} />
+                        {rate}%
+                        {settingMoved && (
+                          <div className="muted small">now {liveRate}%</div>
+                        )}
+                      </td>
+                      <td className="num">
+                        {saved ? qty : (
+                          <input className="cell-input" type="number" min="0" step="1"
+                            value={ed.allowanceQty[rule.rule_key] ?? ''}
+                            placeholder="0"
+                            onChange={(ev) => setEdit(emp.id, {
+                              allowanceQty: {
+                                ...ed.allowanceQty,
+                                [rule.rule_key]: ev.target.value,
+                              },
+                            })} />
+                        )}
                       </td>
                       <td className="num">{formatCurrency(amt)}</td>
                     </tr>

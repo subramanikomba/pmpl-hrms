@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { TextArea, TextInput } from '@/components/ui/Field';
 import { TimeInput } from '@/components/ui/TimeInput';
 import { DataTable } from '@/components/ui/DataTable';
-import type { CompanySettings } from '@/types/db';
+import type { AllowanceRule, CompanySettings } from '@/types/db';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
@@ -20,6 +20,59 @@ function describeWorkingDays(days: readonly number[]): string {
   const on = [...days].sort((a, b) => a - b).map((d) => DAY_NAMES[d]);
   const off = DAY_NAMES.filter((_, i) => !days.includes(i));
   return `${on.join(', ')}${off.length ? ` · weekly off: ${off.join(', ')}` : ''}`;
+}
+
+/**
+ * Min and max for one allowance rule.
+ *
+ * Both values are saved TOGETHER in a single update. The database requires
+ * both-or-neither, so saving them independently always fails: the first
+ * update would leave one side null. Clearing both marks the rule fixed-rate.
+ */
+function RateRangeCell({ rule }: { rule: AllowanceRule }) {
+  const toast = useToast();
+  const [min, setMin] = useState(rule.min_rate_percent?.toString() ?? '');
+  const [max, setMax] = useState(rule.max_rate_percent?.toString() ?? '');
+
+  async function save(nextMin: string, nextMax: string) {
+    const lo = nextMin.trim() === '' ? null : Number(nextMin);
+    const hi = nextMax.trim() === '' ? null : Number(nextMax);
+
+    // Unchanged: nothing to do.
+    if (lo === (rule.min_rate_percent ?? null)
+      && hi === (rule.max_rate_percent ?? null)) return;
+
+    // A half-filled range is not an error yet — the user is mid-entry.
+    if ((lo === null) !== (hi === null)) return;
+    if (lo !== null && hi !== null && lo > hi) {
+      toast.error('The minimum rate cannot be more than the maximum.');
+      return;
+    }
+    try {
+      await rulesApi.update(rule.id, {
+        min_rate_percent: lo, max_rate_percent: hi,
+      });
+      rule.min_rate_percent = lo;
+      rule.max_rate_percent = hi;
+      toast.success(lo === null ? 'Rate range cleared.' : 'Rate range updated.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update rule.');
+    }
+  }
+
+  return (
+    <span className="rate-range">
+      <input className="cell-input rate-range-input" type="number" step="0.5"
+        placeholder="min" value={min}
+        onChange={(e) => setMin(e.target.value)}
+        onBlur={() => void save(min, max)} />
+      <span className="muted">–</span>
+      <input className="cell-input rate-range-input" type="number" step="0.5"
+        placeholder="max" value={max}
+        onChange={(e) => setMax(e.target.value)}
+        onBlur={() => void save(min, max)} />
+    </span>
+  );
 }
 
 export function SettingsPage() {
@@ -147,7 +200,10 @@ export function SettingsPage() {
 
       <Card title="Allowance rules" className="settings-card">
           <p className="muted">
-            Configurable percentages used when calculating allowances.
+            Configurable percentages used when calculating allowances. Payroll
+            always uses the Rate column. Where a rule has an agreed range, the
+            minimum and maximum are recorded alongside for reference — they do
+            not affect any calculation.
           </p>
           <DataTable
             columns={[
@@ -161,17 +217,23 @@ export function SettingsPage() {
                       if (v !== r.rate_percent) {
                         void rulesApi.update(r.id, { rate_percent: v })
                           .then(() => toast.success('Rule updated.'))
-                          .catch(() => toast.error('Could not update rule.'));
+                          // Surface the database's own message: a generic
+                          // failure hides which rule was rejected and why.
+                          .catch((err) => toast.error(
+                            err instanceof Error ? err.message : 'Could not update rule.'));
                       }
                     }}
                   />
                 ) },
+              { key: 'range', header: 'Rate range (%)', align: 'right',
+                cell: (r) => <RateRangeCell rule={r} /> },
               { key: 'active', header: 'Active', align: 'center',
                 cell: (r) => (
                   <input type="checkbox" defaultChecked={r.is_active}
                     onChange={(e) => {
                       void rulesApi.update(r.id, { is_active: e.target.checked })
-                        .catch(() => toast.error('Could not update rule.'));
+                        .catch((err) => toast.error(
+                          err instanceof Error ? err.message : 'Could not update rule.'));
                     }} />
                 ) },
             ]}

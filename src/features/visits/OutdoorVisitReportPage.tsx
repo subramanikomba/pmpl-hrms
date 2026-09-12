@@ -110,7 +110,7 @@ export function OutdoorVisitReportPage() {
       <VisitApprovalSection />
 
       <Card>
-        <div className="form-grid-2">
+        <div className="filter-row">
           <TextInput label="Month" type="month" value={monthValue}
             onChange={(e) => setMonthValue(e.target.value)} />
           <Select label="Employee" value={employeeId}

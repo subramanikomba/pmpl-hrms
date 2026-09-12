@@ -619,3 +619,20 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .tab-count { display: inline-block; margin-left: 6px; min-width: 18px;
   padding: 0 5px; border-radius: 9px; background: var(--warn, #8a6d3b);
   color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+
+/* Compact filter row: controls size to their content and sit together
+   instead of stretching across the card. Wraps on narrow screens. */
+.filter-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.filter-row > * { flex: 0 1 auto; min-width: 180px; }
+.filter-row > .field { margin-bottom: 0; }
+@media (max-width: 560px) { .filter-row > * { flex: 1 1 100%; } }
+
+/* Count of active filters hidden behind "More filters". */
+.filter-count { display: inline-block; margin-left: 6px; min-width: 18px;
+  padding: 0 5px; border-radius: 9px; background: var(--line);
+  color: var(--ink); font-size: 11px; line-height: 18px; text-align: center; }
+
+/* Min–max pair inside one allowance rule row. */
+.rate-range { display: inline-flex; align-items: center; gap: 5px;
+  justify-content: flex-end; }
+.rate-range-input { width: 62px; }

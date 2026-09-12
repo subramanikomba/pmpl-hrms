@@ -3,6 +3,9 @@ import { useQuery } from '@/lib/useQuery';
 import { clientApi, employeesApi, expenseApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate, monthStart } from '@/lib/payroll';
+import { FilterIcon } from '@/components/ui/Icons';
+
+type RangeKey = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom';
 import { Card, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
@@ -24,6 +27,48 @@ export function ExpenseReportsPage() {
   const [from, setFrom] = useState(isoDate(monthStart(now)));
   const [to, setTo] = useState(isoDate(new Date(now.getFullYear(), now.getMonth()+1, 0)));
   const [applied, setApplied] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [range, setRange] = useState<RangeKey>('this_month');
+
+  // Shown on the collapsed button so a hidden filter is never forgotten.
+  const activeExtra = [category, clientId, status].filter(Boolean).length;
+
+  /**
+   * Preset date ranges. Choosing one fills From/To; editing either date
+   * afterwards switches the dropdown back to Custom, so the two can never
+   * disagree about what is being shown.
+   */
+  function applyRange(key: RangeKey) {
+    setRange(key);
+    if (key === 'custom') return;
+    const n = new Date();
+    let first: Date, last: Date;
+    if (key === 'today') {
+      first = last = n;
+    } else if (key === 'this_week') {
+      // Week starts Monday, matching the Mon-Sat working calendar.
+      const dow = (n.getDay() + 6) % 7;
+      first = new Date(n.getFullYear(), n.getMonth(), n.getDate() - dow);
+      last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 6);
+    } else {
+      const off = key === 'last_month' ? -1 : 0;
+      first = new Date(n.getFullYear(), n.getMonth() + off, 1);
+      last = new Date(n.getFullYear(), n.getMonth() + off + 1, 0);
+    }
+    setFrom(isoDate(first));
+    setTo(isoDate(last));
+  }
+
+  /** Clear every filter back to the screen's default view. */
+  function resetFilters() {
+    setEmployeeId('');
+    setCategory('');
+    setClientId('');
+    setStatus('');
+    applyRange('this_month');
+    setMoreOpen(false);
+    setApplied((n) => n + 1);
+  }
 
   const refs = useQuery(async () => {
     const [emps, clients] = await Promise.all([employeesApi.listActive(), clientApi.list()]);
@@ -69,46 +114,75 @@ export function ExpenseReportsPage() {
     <>
       <PageHeader title="Expense reports" subtitle="Filter and review company expenses" />
 
-      <Card title="Filters">
-        <div className="form-grid-2">
-          <Select label="Employee" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+      <Card>
+        {/* Date and employee lead, since those are the filters actually used.
+            The rest sit behind "More filters" so the report starts near the
+            top of the page. Toggled by click, not hover. */}
+        <div className="filter-row">
+          <Select label="Range" value={range}
+            onChange={(e) => applyRange(e.target.value as RangeKey)}>
+            <option value="today">Today</option>
+            <option value="this_week">This week</option>
+            <option value="this_month">This month</option>
+            <option value="last_month">Last month</option>
+            <option value="custom">Custom</option>
+          </Select>
+          <TextInput label="From date" type="date" value={from}
+            onChange={(e) => { setFrom(e.target.value); setRange('custom'); }} />
+          <TextInput label="To date" type="date" value={to}
+            onChange={(e) => { setTo(e.target.value); setRange('custom'); }} />
+          <Select label="Employee" value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>
             {(refs.data?.emps ?? []).map((e) => (
-              <option key={e.id} value={e.id}>{e.employee_code} — {e.first_name} {e.last_name}</option>
+              <option key={e.id} value={e.id}>
+                {e.employee_code} — {e.first_name} {e.last_name}
+              </option>
             ))}
           </Select>
-          <Select label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
-            <option value="">All categories</option>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <div className="row-end gap-sm" style={{ marginTop: 0 }}>
+              <Button size="sm" variant="secondary"
+                aria-expanded={moreOpen}
+                onClick={() => setMoreOpen((o) => !o)}>
+                <FilterIcon /> More filters
+                {activeExtra > 0 && (
+                  <span className="filter-count">{activeExtra}</span>
+                )}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={resetFilters}>
+                Reset
+              </Button>
+              <Button size="sm" variant="primary"
+                onClick={() => setApplied((n) => n + 1)}>Apply filters</Button>
+            </div>
+          </div>
         </div>
-        {/* Dates sit together as a range, and all six filters share one grid
-            so the report starts higher up the page. */}
-        <div className="form-grid-2">
-          <TextInput label="From date" type="date" value={from}
-            onChange={(e) => setFrom(e.target.value)} />
-          <TextInput label="To date" type="date" value={to}
-            onChange={(e) => setTo(e.target.value)} />
-        </div>
-        <div className="form-grid-2">
-          <Select label="Client" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">All clients</option>
-            {(refs.data?.clients ?? []).map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </Select>
-          <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </Select>
-        </div>
-        <div className="row-end gap" style={{ alignItems: 'flex-end' }}>
-          <Button variant="primary" onClick={() => setApplied((n) => n + 1)}>
-            Apply filters
-          </Button>
-        </div>
+
+        {moreOpen && (
+          <div className="filter-row" style={{ marginTop: 12 }}>
+            <Select label="Category" value={category}
+              onChange={(e) => setCategory(e.target.value)}>
+              <option value="">All categories</option>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </Select>
+            <Select label="Client" value={clientId}
+              onChange={(e) => setClientId(e.target.value)}>
+              <option value="">All clients</option>
+              {(refs.data?.clients ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+            <Select label="Status" value={status}
+              onChange={(e) => setStatus(e.target.value)}>
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </Select>
+          </div>
+        )}
       </Card>
 
       {q.loading ? <Spinner label="Loading expenses…" />

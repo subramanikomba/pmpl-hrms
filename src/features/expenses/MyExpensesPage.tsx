@@ -6,12 +6,13 @@ import {
   advanceApi, clientApi, expenseApi, reimbursementApi, settingsApi,
 } from '@/lib/api';
 import { generateVoucherPdf } from '@/features/vouchers/voucherDocument';
+import { EyeIcon } from '@/components/ui/Icons';
 import { ClientLocationSelect } from '@/components/ui/ClientLocationSelect';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate } from '@/lib/payroll';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { StatusBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Checkbox, Select, TextArea, TextInput } from '@/components/ui/Field';
@@ -43,22 +44,37 @@ export function MyExpensesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const q = useQuery(async () => {
-    const [expenses, clients, ledger, reimbursements] = await Promise.all([
+    const [expenses, clients, ledger, reimbursements, claimStatus] = await Promise.all([
       expenseApi.listFor(employeeId),
       clientApi.list(true),
       advanceApi.ledgerFor(employeeId),
       reimbursementApi.listFor(employeeId),
+      reimbursementApi.claimStatus({ employeeId }),
     ]);
     const outstanding = ledger.length > 0
       ? Number(ledger[ledger.length - 1]?.running_balance ?? 0) : 0;
-    return { expenses, clients, outstanding, reimbursements };
+    return { expenses, clients, outstanding, reimbursements, claimStatus };
   }, [employeeId]);
 
   if (q.loading) return <Spinner label="Loading expenses…" />;
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
   const {
     expenses = [], clients = [], outstanding = 0, reimbursements = [],
+    claimStatus = [],
   } = q.data ?? {};
+
+  /**
+   * What the employee is still owed across all their approved claims, from
+   * the same derived view the Admin screen uses. Never stored, so it cannot
+   * disagree with the payment records.
+   */
+  const stillOwed = claimStatus
+    .filter((c) => c.is_reimbursable)
+    .reduce((t, c) => t + Number(c.outstanding_amount), 0);
+  const settledCount = claimStatus
+    .filter((c) => c.reimbursement_status === 'reimbursed').length;
+  const partCount = claimStatus
+    .filter((c) => c.reimbursement_status === 'partially_reimbursed').length;
 
   /**
    * Rebuild the employee's own voucher from the stored payment. RLS restricts
@@ -170,6 +186,30 @@ export function MyExpensesPage() {
     { key: 'bill', header: 'Bill no.', cell: (r) => r.bill_number || '—' },
     { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
     { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
+    // Settlement is shown only for approved claims, and only from the derived
+    // payment records — never inferred from approval alone.
+    { key: 'settle', header: 'Reimbursement',
+      cell: (r) => {
+        const st = claimStatus.find((c) => c.expense_id === r.id);
+        if (!st || r.status !== 'approved') return <span className="muted">—</span>;
+        if (st.reimbursement_status === 'accounted_against_advance') {
+          return <Badge tone="neutral-alt">Paid from advance</Badge>;
+        }
+        if (st.reimbursement_status === 'reimbursed') {
+          return <Badge tone="success">Settled</Badge>;
+        }
+        if (st.reimbursement_status === 'partially_reimbursed') {
+          return (
+            <>
+              <Badge tone="warn">Partially settled</Badge>
+              <div className="muted small">
+                {formatCurrency(st.outstanding_amount)} outstanding
+              </div>
+            </>
+          );
+        }
+        return <Badge tone="info">Pending reimbursement</Badge>;
+      } },
     { key: 'act', header: '', align: 'right',
       // Only a pending claim is editable; RLS enforces the same rule.
       cell: (r) => r.status === 'pending'
@@ -247,31 +287,70 @@ export function MyExpensesPage() {
         </div>
       </Card>
 
-      {reimbursements.length > 0 && (
-        <Card title="Reimbursements received">
+      {(reimbursements.length > 0 || stillOwed > 0) && (
+        <Card title="Reimbursements">
           <p className="muted small">
-            Payments the company has made to you for expenses you paid
-            yourself. These are not salary and do not appear on your salary slip.
+            Money the company has paid back to you for expenses you paid
+            yourself. This is not salary — it does not appear on your salary
+            slip and does not affect your pay.
           </p>
+
           <ul className="plain-list">
-            {reimbursements.map((p) => (
-              <li key={p.id}>
-                <span>
-                  <strong>{p.voucher_no}</strong>
-                  {' · '}{formatDate(p.payment_date)}
-                  {' · '}{p.payment_mode}
-                  {p.reference ? ` · ${p.reference}` : ''}
-                </span>
-                <span className="row-end gap-sm" style={{ marginTop: 0 }}>
-                  <strong>{formatCurrency(p.amount)}</strong>
-                  <Button size="sm" variant="secondary"
-                    onClick={() => void downloadVoucher(p.id)}>
-                    Voucher
-                  </Button>
-                </span>
+            <li>
+              <span>Still to be reimbursed</span>
+              <strong className={stillOwed > 0 ? 'count-pending' : undefined}>
+                {formatCurrency(stillOwed)}
+              </strong>
+            </li>
+            {partCount > 0 && (
+              <li>
+                <span>Claims partially settled</span>
+                <strong>{partCount}</strong>
               </li>
-            ))}
+            )}
+            <li>
+              <span>Claims fully settled</span>
+              <strong>{settledCount}</strong>
+            </li>
           </ul>
+
+          {reimbursements.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Voucher</th>
+                    <th className="num">Amount</th>
+                    <th>Mode / reference</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reimbursements.map((p) => (
+                    <tr key={p.id}>
+                      <td>{formatDate(p.payment_date)}</td>
+                      <td><strong>{p.voucher_no}</strong></td>
+                      <td className="num">{formatCurrency(p.amount)}</td>
+                      <td>
+                        {p.payment_mode}
+                        {p.reference && (
+                          <div className="muted small">{p.reference}</div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <Button size="sm" variant="ghost"
+                          title="View voucher" aria-label="View voucher"
+                          onClick={() => void downloadVoucher(p.id)}>
+                          <EyeIcon />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       )}
 

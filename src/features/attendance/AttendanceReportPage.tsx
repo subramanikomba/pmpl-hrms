@@ -145,7 +145,7 @@ export function AttendanceReportPage() {
       <Card title="Filters">
         {/* Employee first, then Month — same order as the Mark / correct
             tab, so switching tabs does not move the fields under the cursor. */}
-        <div className="form-grid-2">
+        <div className="filter-row">
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>

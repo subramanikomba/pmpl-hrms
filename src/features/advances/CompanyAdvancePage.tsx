@@ -19,6 +19,9 @@ import {
   generateVoucherPdf, generateVoucherPreview, type VoucherData,
 } from '@/features/vouchers/voucherDocument';
 import { PdfViewerModal } from '@/features/payroll/PdfViewerModal';
+import {
+  generateUtilisationPdf, generateUtilisationPreview, type UtilisationData,
+} from '@/features/vouchers/utilisationDocument';
 import { EyeIcon } from '@/components/ui/Icons';
 import type { CompanyExpense, Employee, LedgerRow } from '@/types/db';
 
@@ -37,6 +40,41 @@ export function CompanyAdvancePage() {
   const [tab, setTab] = useState<Tab>('ledger');
   const [busyVoucher, setBusyVoucher] = useState<string | null>(null);
   const [viewingVoucher, setViewingVoucher] = useState<VoucherData | null>(null);
+  const [viewingAdvanceId, setViewingAdvanceId] = useState<string | null>(null);
+  const [utilisation, setUtilisation] = useState<UtilisationData | null>(null);
+  const [utilBusy, setUtilBusy] = useState(false);
+
+  /**
+   * Advance Utilisation: what became of one advance. Built from the existing
+   * accounting columns, so it can never disagree with the ledger balance.
+   */
+  async function openUtilisation(v: VoucherData, advanceId: string) {
+    setUtilBusy(true);
+    try {
+      const [advance, claims] = await Promise.all([
+        advanceApi.getOne(advanceId),
+        advanceApi.expensesAccountedAgainst(advanceId),
+      ]);
+      if (!advance) throw new Error('Advance not found.');
+      setUtilisation({
+        voucherNo: v.voucherNo,
+        employee: v.employee,
+        settings: v.settings,
+        advanceDate: advance.advance_date,
+        advanceAmount: Number(advance.amount),
+        reference: advance.reference || null,
+        notes: advance.note || null,
+        lines: claims.map((c) => ({
+          date: c.expense_date,
+          category: c.category,
+          description: c.description,
+          accounted: Number(c.accounted_amount ?? 0),
+        })),
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not build the report');
+    } finally { setUtilBusy(false); }
+  }
 
   /**
    * Rebuild the payment voucher for an advance already in the ledger.
@@ -56,6 +94,7 @@ export function CompanyAdvancePage() {
         settingsApi.get(),
       ]);
 
+      setViewingAdvanceId(advance.id);
       setViewingVoucher({
         kind: 'advance',
         voucherNo,
@@ -281,12 +320,25 @@ export function CompanyAdvancePage() {
         </>
       )}
 
-      {viewingVoucher && (
+      {viewingVoucher && !utilisation && (
         <PdfViewerModal
           title={`Payment voucher — ${viewingVoucher.voucherNo}`}
           build={() => generateVoucherPreview(viewingVoucher)}
-          onClose={() => setViewingVoucher(null)}
+          onClose={() => { setViewingVoucher(null); setViewingAdvanceId(null); }}
           onDownload={() => void generateVoucherPdf(viewingVoucher)}
+          extraAction={viewingAdvanceId ? {
+            label: utilBusy ? 'Opening…' : 'Expense breakdown',
+            onClick: () => void openUtilisation(viewingVoucher, viewingAdvanceId),
+          } : undefined}
+        />
+      )}
+
+      {utilisation && (
+        <PdfViewerModal
+          title={`Advance utilisation — ${utilisation.voucherNo}`}
+          build={() => generateUtilisationPreview(utilisation)}
+          onClose={() => setUtilisation(null)}
+          onDownload={() => void generateUtilisationPdf(utilisation)}
         />
       )}
 

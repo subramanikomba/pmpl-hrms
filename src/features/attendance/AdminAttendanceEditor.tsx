@@ -89,7 +89,7 @@ export function AdminAttendanceEditor() {
   return (
     <>
       <Card>
-        <div className="form-grid-2">
+        <div className="filter-row">
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             {employees.map((e) => (

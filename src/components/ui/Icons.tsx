@@ -28,3 +28,17 @@ export function DownloadIcon() {
     </svg>
   );
 }
+
+/** Sliders glyph for the "More filters" control. */
+export function FilterIcon() {
+  return (
+    <svg {...base}>
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+      <circle cx="9" cy="6" r="2" />
+      <circle cx="15" cy="12" r="2" />
+      <circle cx="8" cy="18" r="2" />
+    </svg>
+  );
+}

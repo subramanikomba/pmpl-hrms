@@ -706,6 +706,17 @@ export const advanceApi = {
         .eq('employee_id', employeeId).order('txn_date'),
     );
   },
+  /**
+   * Approved expenses accounted against one advance. Read-only: this reuses
+   * the existing accounting records and computes no second balance.
+   */
+  async expensesAccountedAgainst(advanceId: string): Promise<CompanyExpense[]> {
+    return unwrapList<CompanyExpense>(
+      await supabase.from('company_expenses').select('*')
+        .eq('accounted_advance_id', advanceId)
+        .order('expense_date'),
+    );
+  },
   async getOne(id: string): Promise<CompanyAdvance | null> {
     const { data, error } = await supabase.from('company_advances')
       .select('*').eq('id', id).maybeSingle();

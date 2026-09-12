@@ -279,6 +279,13 @@ export interface CompanyHoliday {
 }
 
 export interface AllowanceRule {
+  /**
+   * Configured rate range, for Admin reference in Payroll Settings only.
+   * Null on a fixed-rate rule. Payroll always calculates from rate_percent —
+   * these two fields are never used in any calculation.
+   */
+  min_rate_percent?: number | null;
+  max_rate_percent?: number | null;
   id: string;
   rule_key: string;
   description: string;
