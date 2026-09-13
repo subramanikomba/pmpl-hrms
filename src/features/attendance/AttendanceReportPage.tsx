@@ -16,9 +16,12 @@ const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
 
 /** Compact per-day cell code used in the grid. */
 type CellKind =
-  | 'present' | 'leave' | 'weekly' | 'holiday' | 'absent' | 'unmarked' | 'future';
+  | 'present' | 'leave' | 'weekly' | 'holiday' | 'absent' | 'unmarked'
+  // Present on a weekly off or company holiday.
+  | 'worked_off' | 'future';
 const CELL_TEXT: Record<CellKind, string> = {
   present: 'P', leave: 'PL', weekly: 'WO', holiday: 'CH', absent: 'A',
+  worked_off: 'P*',
   // Not the same as Absent: nobody recorded anything for this day.
   unmarked: 'NM', future: '·',
 };
@@ -65,10 +68,18 @@ export function AttendanceReportPage() {
   function cellKind(empId: string, d: Date): CellKind {
     const ds = isoDate(d);
     const status = byEmployee.get(empId)?.get(ds);
-    if (!workingSet.has(d.getDay())) return 'weekly';
-    if (status === 'present') return 'present';
+    const isOff = !workingSet.has(d.getDay());
+    const isHoliday = holidayDates.has(ds);
+
+    // An explicit Present beats the calendar. Work done on a Sunday or a
+    // company holiday is what the Emergency / Weekend allowance pays for, so
+    // it must be visible here rather than collapsed into WO or CH. The day is
+    // still paid as an off — this changes display only, never paid days.
+    if (status === 'present') return isOff || isHoliday ? 'worked_off' : 'present';
+
+    if (isOff) return 'weekly';
     if (status === 'paid_leave') return 'leave';
-    if (holidayDates.has(ds) || status === 'company_holiday') return 'holiday';
+    if (isHoliday || status === 'company_holiday') return 'holiday';
     if (status === 'weekly_off') return 'weekly';
     if (ds > todayStr) return 'future';
     // Absent is a recorded decision; no record at all is a distinct state and
@@ -226,6 +237,7 @@ export function AttendanceReportPage() {
               <span className="att-cell cell-leave">PL</span> Paid leave
               <span className="att-cell cell-weekly">WO</span> Weekly off
               <span className="att-cell cell-holiday">CH</span> Company holiday
+              <span className="att-cell cell-worked_off">P*</span> Worked weekly off / holiday
               <span className="att-cell cell-absent">A</span> Absent
               <span className="att-cell cell-unmarked">NM</span> Not marked
             </div>

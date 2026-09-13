@@ -179,7 +179,11 @@ export function AdminDashboardPage() {
         <Card title="Company money">
           <ul className="plain-list">
             <li>
-              <span>Outstanding company advances</span>
+              {/* Opens the Advance & expense summary directly, so the figure
+                  leads to the breakdown behind it. */}
+              <Link to="/admin/company-advance?tab=summary">
+                Outstanding company advances
+              </Link>
               <strong>{formatCurrency(d.outstandingAdvance)}</strong>
             </li>
             <li>

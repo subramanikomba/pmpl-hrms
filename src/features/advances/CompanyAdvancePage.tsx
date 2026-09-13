@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
-import { advanceApi, employeesApi, expenseApi, settingsApi } from '@/lib/api';
+import {
+  advanceApi, employeesApi, expenseApi, reimbursementApi, settingsApi,
+} from '@/lib/api';
 import { round2 } from '@/lib/payroll';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -37,7 +40,14 @@ export function CompanyAdvancePage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [accounting, setAccounting] = useState<CompanyExpense | null>(null);
-  const [tab, setTab] = useState<Tab>('ledger');
+  // A deep link may open a specific tab, e.g. /admin/company-advance?tab=summary
+  // from the dashboard. Falls back to the ledger for any other value.
+  const [params] = useSearchParams();
+  const requested = params.get('tab');
+  const [tab, setTab] = useState<Tab>(
+    requested === 'summary' || requested === 'reimbursements'
+      ? requested : 'ledger',
+  );
   const [busyVoucher, setBusyVoucher] = useState<string | null>(null);
   const [viewingVoucher, setViewingVoucher] = useState<VoucherData | null>(null);
   const [viewingAdvanceId, setViewingAdvanceId] = useState<string | null>(null);
@@ -121,11 +131,27 @@ export function CompanyAdvancePage() {
   // Approved claims the admin has NOT accounted against an advance. These are
   // deliberately kept out of the balance so company advances and expense
   // claims never blur together.
+  /**
+   * Approved claims still owed to the employee.
+   *
+   * A claim can now be settled two ways — accounted against a company advance,
+   * or reimbursed in cash — so checking accounted_advance_id alone left fully
+   * reimbursed claims sitting here permanently. The derived view's
+   * is_reimbursable flag already means "approved, not advance-accounted, and
+   * still outstanding", and is the same flag the Reimbursements tab uses, so
+   * the two screens agree by construction.
+   */
   const unreconciled = useQuery(
-    () => employeeId
-      ? expenseApi.listAll({ employeeId, status: 'approved' })
-          .then((rows) => rows.filter((r) => !r.accounted_advance_id))
-      : Promise.resolve([]),
+    async () => {
+      if (!employeeId) return [];
+      const [claims, status] = await Promise.all([
+        expenseApi.listAll({ employeeId, status: 'approved' }),
+        reimbursementApi.claimStatus({ employeeId }),
+      ]);
+      const owed = new Set(
+        status.filter((c) => c.is_reimbursable).map((c) => c.expense_id));
+      return claims.filter((r) => owed.has(r.id));
+    },
     [employeeId],
   );
 
@@ -255,7 +281,10 @@ export function CompanyAdvancePage() {
         : tab === 'summary' ? <AdvanceExpenseSummary /> : (
       <>
       <Card title="Give a company advance">
-        <div className="form-grid-2">
+        {/* Employee first: it also filters the ledger below, so it is the
+            control the Admin reaches for most. Fields size to their content
+            and wrap, rather than stacking in full-width pairs. */}
+        <div className="filter-row">
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
@@ -267,17 +296,20 @@ export function CompanyAdvancePage() {
           </Select>
           <TextInput label="Date" type="date" value={date}
             onChange={(e) => setDate(e.target.value)} />
-        </div>
-        <div className="form-grid-2">
           <TextInput label="Amount (₹)" type="number" min="0" step="0.01" value={amount}
             onChange={(e) => setAmount(e.target.value)} />
           <TextInput label="Reference" value={reference}
-            onChange={(e) => setReference(e.target.value)} placeholder="Cheque / UTR / Cash" />
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="Cheque / UTR / Cash" />
+          <TextInput label="Note" value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Purpose of the advance" />
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <Button variant="primary" disabled={saving || !employeeId}
+              onClick={() => void give()}>Record advance</Button>
+          </div>
         </div>
-        <TextInput label="Note" value={note} onChange={(e) => setNote(e.target.value)}
-          placeholder="Purpose of the advance" />
-        <Button variant="primary" disabled={saving || !employeeId}
-          onClick={() => void give()}>Record advance</Button>
       </Card>
 
       {employeeId && (
@@ -293,7 +325,7 @@ export function CompanyAdvancePage() {
           </div>
 
           {(unreconciled.data ?? []).length > 0 && (
-            <Card title="Approved, not yet accounted" className="mid">
+            <Card title="Approved, not yet settled" className="mid">
               <p className="muted small">
                 These approved claims do not affect the advance balance yet.
                 Use <strong>Account</strong> to settle one against an advance.

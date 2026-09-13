@@ -636,3 +636,8 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .rate-range { display: inline-flex; align-items: center; gap: 5px;
   justify-content: flex-end; }
 .rate-range-input { width: 62px; }
+
+/* Present on a weekly off or holiday: reads as worked, but tinted so it is
+   visibly distinct from an ordinary working day. */
+.cell-worked_off { background: var(--info-bg, #e7eef7); color: var(--info, #2f5d8a);
+  font-weight: 600; }
