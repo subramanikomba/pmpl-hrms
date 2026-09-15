@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@/lib/useQuery';
 import {
   attendanceChangeApi, expenseApi, leaveApi, outdoorVisitApi,
@@ -18,8 +19,16 @@ type Tab = 'corrections' | 'leave' | 'visits' | 'expenses';
  * untouched. The counts are pending items only, so the Admin can see where
  * the work is without opening each tab.
  */
+const TAB_KEYS: Tab[] = ['corrections', 'leave', 'visits', 'expenses'];
+
 export function ApprovalsPage() {
-  const [tab, setTab] = useState<Tab>('corrections');
+  // A deep link may open a specific tab, e.g. /admin/approvals?tab=leave from
+  // the dashboard. Any other value falls back to corrections.
+  const [params] = useSearchParams();
+  const requested = params.get('tab') as Tab | null;
+  const [tab, setTab] = useState<Tab>(
+    requested && TAB_KEYS.includes(requested) ? requested : 'corrections',
+  );
 
   const counts = useQuery(async () => {
     const [corrections, leave, visits, expenses] = await Promise.all([
