@@ -527,11 +527,15 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 @media (max-width: 700px) { .doc-viewer { height: 62vh; } }
 
 /* ── Receipt viewer ─────────────────────────────────────────── */
-.receipt-viewer { display: flex; align-items: center; justify-content: center;
+.receipt-viewer { display: flex; align-items: flex-start; justify-content: center;
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   padding: 8px; max-height: min(70vh, 720px); overflow: auto; }
-.receipt-image { max-width: 100%; max-height: min(66vh, 680px);
-  object-fit: contain; display: block; }
+/* No height cap: a tall receipt (a phone screenshot of a table, say) was
+   shrunk to fit the viewer's height, throwing away most of the detail the
+   file actually contains. It now takes the full width and the container
+   scrolls. max-width rather than width, so a small image is never upscaled
+   and blurred. */
+.receipt-image { max-width: 100%; height: auto; display: block; }
 
 /* ── Working-day selector ───────────────────────────────────── */
 .weekday-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
