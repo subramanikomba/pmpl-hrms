@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { expenseApi, RECEIPT_MAX_BYTES, RECEIPT_TYPES } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { DownloadIcon } from '@/components/ui/Icons';
 import { useToast } from '@/components/ui/ToastProvider';
 import { PdfViewerModal } from '@/features/payroll/PdfViewerModal';
 
@@ -105,6 +106,34 @@ export function ReceiptLink({ path }: { path: string | null }) {
     }
   }
 
+  /**
+   * Save the receipt to the device.
+   *
+   * Fetched as a blob and saved through an object URL rather than pointing a
+   * link at the signed URL: the `download` attribute is ignored cross-origin,
+   * which would open a tab instead of downloading. This keeps the user in the
+   * app, and hands the file to the OS viewer where zoom actually works.
+   */
+  async function download() {
+    if (!url) return;
+    setBusy(true);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Could not download the receipt.');
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = path?.split('/').pop() || 'receipt';
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not download receipt');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <Button size="sm" variant="secondary" disabled={busy} onClick={() => void open()}>
@@ -128,7 +157,7 @@ export function ReceiptLink({ path }: { path: string | null }) {
             return URL.createObjectURL(await res.blob());
           }}
           onClose={() => setUrl(null)}
-          onDownload={() => window.open(url, '_blank', 'noopener')}
+          onDownload={() => void download()}
         />
       )}
 
@@ -138,6 +167,10 @@ export function ReceiptLink({ path }: { path: string | null }) {
             <img src={url} alt="Expense receipt" className="receipt-image" />
           </div>
           <div className="row-end gap">
+            <Button variant="secondary" disabled={busy}
+              onClick={() => void download()}>
+              <DownloadIcon /> Download
+            </Button>
             <Button variant="primary" onClick={() => setUrl(null)}>Close</Button>
           </div>
         </Modal>
