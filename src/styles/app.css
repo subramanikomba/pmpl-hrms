@@ -190,7 +190,11 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .data-table tbody tr:hover td { background: #FAFBFC; }
 .table-empty { text-align: center; color: var(--muted); padding: 22px !important; }
 .totals-row td { font-weight: 700; background: var(--bg); }
-.num, .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* th.num needs the .data-table prefix too: `.data-table th` sets text-align
+   left at higher specificity than a bare `.num`, which left numeric headers
+   misaligned above their right-aligned figures. */
+.num, .data-table td.num, .data-table th.num {
+  text-align: right; font-variant-numeric: tabular-nums; }
 .fw-bold { font-weight: 700; }
 
 .payroll-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
