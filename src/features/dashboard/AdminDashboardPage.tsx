@@ -197,7 +197,7 @@ export function AdminDashboardPage() {
         <Card title="Outdoor visits">
           <ul className="plain-list">
             <li>
-              <Link to="/admin/outdoor-visits">Visits awaiting approval</Link>
+              <Link to="/admin/approvals?tab=visits">Visits awaiting approval</Link>
               <strong className={d.pendingVisits.length > 0 ? 'count-pending' : undefined}>
                 {d.pendingVisits.length}
               </strong>

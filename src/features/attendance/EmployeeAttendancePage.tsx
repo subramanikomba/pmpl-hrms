@@ -65,6 +65,8 @@ export function EmployeeAttendancePage() {
   const isHoliday = holidayDates.has(todayStr);
   const alreadyPresent = todayRecord?.status === 'present';
   const pendingRequests = requests.filter((r) => r.status === 'pending');
+  // Leave may be applied for any day in the current month, past or future.
+  const monthStartStr = isoDate(monthStart(today));
 
   const outstandingAdvance = ledger.length > 0
     ? (ledger[ledger.length - 1]?.running_balance ?? 0)
@@ -89,8 +91,14 @@ export function EmployeeAttendancePage() {
   async function applyLeave() {
     if (!from) { toast.error('Choose a start date for your leave.'); return; }
     const end = to || from;
-    if (from <= todayStr) {
-      toast.error('Leave can only be applied for future dates.');
+    // Past dates are allowed within the current month, so a day already taken
+    // off can be regularised as leave rather than being left as Absent. Older
+    // months are closed; the same bound is enforced by RLS.
+    if (from < monthStartStr) {
+      toast.error(
+        'Leave can be applied for dates in this month or later. '
+        + 'For an earlier month, please ask Admin.',
+      );
       return;
     }
     if (end < from) { toast.error('The end date cannot be before the start date.'); return; }
@@ -159,14 +167,19 @@ export function EmployeeAttendancePage() {
       )}
 
       <Card title="Apply for leave">
+        <p className="muted small">
+          You can apply for a future date, or for a day earlier this month that
+          you were away — for example a day taken off in lieu of working a
+          Sunday. Admin approves it, and approved leave counts as a paid day.
+        </p>
         <div className="form-grid-2">
           <TextInput
             label="From date" type="date" value={from}
-            onChange={(e) => setFrom(e.target.value)} min={todayStr}
+            onChange={(e) => setFrom(e.target.value)} min={monthStartStr}
           />
           <TextInput
             label="To date" type="date" value={to}
-            onChange={(e) => setTo(e.target.value)} min={from || todayStr}
+            onChange={(e) => setTo(e.target.value)} min={from || monthStartStr}
             hint="Leave blank for a single day"
           />
         </div>

@@ -19,13 +19,19 @@ export function Card(
 }
 
 export function StatCard(
-  { label, value, tone = 'default' }:
-  { label: string; value: ReactNode; tone?: 'default' | 'warn' | 'good' },
+  { label, value, tone = 'default', hint }:
+  {
+    label: string; value: ReactNode;
+    tone?: 'default' | 'warn' | 'good';
+    /** Optional sub-line explaining what the figure covers. */
+    hint?: string;
+  },
 ) {
   return (
     <div className={`stat-card stat-${tone}`}>
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
+      {hint && <div className="stat-hint">{hint}</div>}
     </div>
   );
 }

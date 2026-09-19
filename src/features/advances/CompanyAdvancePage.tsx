@@ -49,6 +49,8 @@ export function CompanyAdvancePage() {
       ? requested : 'ledger',
   );
   const [busyVoucher, setBusyVoucher] = useState<string | null>(null);
+  const [ledgerFilter, setLedgerFilter] =
+    useState<'all' | 'advances' | 'expenses'>('all');
   const [viewingVoucher, setViewingVoucher] = useState<VoucherData | null>(null);
   const [viewingAdvanceId, setViewingAdvanceId] = useState<string | null>(null);
   const [utilisation, setUtilisation] = useState<UtilisationData | null>(null);
@@ -155,10 +157,36 @@ export function CompanyAdvancePage() {
     [employeeId],
   );
 
-  const rows = ledger.data ?? [];
-  const closing = rows.length > 0 ? (rows[rows.length - 1]?.running_balance ?? 0) : 0;
-  const totalGiven = rows.reduce((sum, r) => sum + Number(r.debit ?? 0), 0);
-  const totalAccounted = rows.reduce((sum, r) => sum + Number(r.credit ?? 0), 0);
+  const allRows = ledger.data ?? [];
+  const rows = ledgerFilter === 'all'
+    ? allRows
+    : allRows.filter((r) => r.txn_type
+      === (ledgerFilter === 'advances' ? 'advance' : 'expense'));
+  // Totals always come from the UNFILTERED ledger: filtering the table is a
+  // view, not a change to the employee's position.
+  const closing = allRows.length > 0
+    ? (allRows[allRows.length - 1]?.running_balance ?? 0) : 0;
+  const totalGiven = allRows.reduce((sum, r) => sum + Number(r.debit ?? 0), 0);
+  const totalAccounted = allRows.reduce((sum, r) => sum + Number(r.credit ?? 0), 0);
+  const advanceCount = allRows.filter((r) => r.txn_type === 'advance').length;
+  const expenseCount = allRows.filter((r) => r.txn_type === 'expense').length;
+
+  /**
+   * Approved claims not yet settled, and how long the oldest has waited.
+   *
+   * Aged from the APPROVAL date, not the expense date: before approval the
+   * company has not agreed it owes anything, so counting earlier would blame
+   * settlement for a slow approval.
+   */
+  const awaiting = unreconciled.data ?? [];
+  const awaitingTotal = awaiting.reduce((t, x) => t + Number(x.amount), 0);
+  const oldestWaitDays = awaiting.reduce((max, x) => {
+    const from = x.reviewed_at ?? x.expense_date;
+    const days = Math.floor(
+      (Date.now() - Date.parse(from)) / 86_400_000);
+    return Math.max(max, days);
+  }, 0);
+  const AWAITING_WARN_DAYS = 7;
 
   /** Reverse an accounting entry. Confirmed because it moves the balance. */
   async function unaccount(row: LedgerRow) {
@@ -218,14 +246,22 @@ export function CompanyAdvancePage() {
 
   const columns: Column<LedgerRow>[] = [
     { key: 'date', header: 'Date', cell: (r) => formatDate(r.txn_date) },
+    // Badge colour matches the amount colour in the same row: one colour
+    // language for direction, rather than two unrelated ones.
     { key: 'type', header: 'Type',
-      cell: (r) => <Badge tone={r.txn_type === 'advance' ? 'info' : 'neutral-alt'}>
+      cell: (r) => <Badge tone={r.txn_type === 'advance' ? 'success' : 'danger'}>
         {r.txn_type === 'advance' ? 'Advance given' : 'Expense accounted'}
       </Badge> },
+    // Signed and coloured so direction reads at a glance: an advance raises
+    // the balance the employee holds, an accounted expense reduces it.
     { key: 'debit', header: 'Advance', align: 'right',
-      cell: (r) => r.debit > 0 ? formatCurrency(r.debit) : '—' },
+      cell: (r) => r.debit > 0
+        ? <span className="amt-out">+{formatCurrency(r.debit)}</span>
+        : <span className="muted">—</span> },
     { key: 'credit', header: 'Accounted', align: 'right',
-      cell: (r) => r.credit > 0 ? formatCurrency(r.credit) : '—' },
+      cell: (r) => r.credit > 0
+        ? <span className="amt-in">−{formatCurrency(r.credit)}</span>
+        : <span className="muted">—</span> },
     { key: 'ref', header: 'Reference', cell: (r) => r.reference || '—' },
     { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
     { key: 'bal', header: 'Balance', align: 'right',
@@ -315,12 +351,25 @@ export function CompanyAdvancePage() {
       {employeeId && (
         <>
           <div className="stat-grid">
-            <StatCard label="Advance given" value={formatCurrency(totalGiven)} />
-            <StatCard label="Expenses accounted" value={formatCurrency(totalAccounted)} />
+            <StatCard label="Advance given" value={formatCurrency(totalGiven)}
+              hint={`Across ${advanceCount} advance${advanceCount === 1 ? '' : 's'}`} />
+            <StatCard label="Expenses accounted" value={formatCurrency(totalAccounted)}
+              hint={`${expenseCount} expense entr${expenseCount === 1 ? 'y' : 'ies'}`} />
             <StatCard
               label="Balance outstanding"
               value={formatCurrency(closing)}
               tone={closing > 0 ? 'warn' : 'good'}
+              hint="Held by employee"
+            />
+            {/* Approved but not yet settled: owed, and not in the ledger. */}
+            <StatCard
+              label="Awaiting settlement"
+              value={formatCurrency(awaitingTotal)}
+              tone={oldestWaitDays >= AWAITING_WARN_DAYS ? 'warn' : 'default'}
+              hint={awaiting.length === 0
+                ? 'Nothing outstanding'
+                : `${awaiting.length} approved claim${awaiting.length === 1 ? '' : 's'}`
+                  + ` · oldest ${oldestWaitDays} day${oldestWaitDays === 1 ? '' : 's'}`}
             />
           </div>
 
@@ -388,6 +437,22 @@ export function CompanyAdvancePage() {
             Closing balance: <strong>{formatCurrency(closing)}</strong>
           </span>
         }>
+          {/* View filter only — the totals above always reflect the whole
+              ledger, whichever chip is selected. */}
+          <div className="chip-row" style={{ marginBottom: 10 }}>
+            {([
+              ['all', `All (${allRows.length})`],
+              ['advances', `Advances (${advanceCount})`],
+              ['expenses', `Expenses (${expenseCount})`],
+            ] as const).map(([key, label]) => (
+              <button key={key} type="button"
+                className={`chip ${ledgerFilter === key ? 'is-active' : ''}`}
+                aria-pressed={ledgerFilter === key}
+                onClick={() => setLedgerFilter(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
           {ledger.loading ? <Spinner />
             : <DataTable columns={columns} rows={rows} rowKey={(r) => `${r.txn_type}-${r.txn_id}`}
                 empty="No advances or accounted expenses for this employee yet." />}

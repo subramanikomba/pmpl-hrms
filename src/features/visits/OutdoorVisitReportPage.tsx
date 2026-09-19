@@ -10,7 +10,6 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Select, TextInput } from '@/components/ui/Field';
-import { VisitApprovalSection } from './VisitApprovalSection';
 import type { OutdoorVisit, WithEmployee } from '@/types/db';
 
 type Row = WithEmployee<OutdoorVisit>;
@@ -104,10 +103,8 @@ export function OutdoorVisitReportPage() {
     <>
       <PageHeader
         title="Outdoor visits"
-        subtitle="Approve visits, and review the counts used for outdoor allowance rules"
+        subtitle="Visits recorded, and the counts used for outdoor allowance rules"
       />
-
-      <VisitApprovalSection />
 
       <Card>
         <div className="filter-row">

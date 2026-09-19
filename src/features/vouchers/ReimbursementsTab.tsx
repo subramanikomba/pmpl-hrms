@@ -75,6 +75,23 @@ export function ReimbursementsTab() {
 
   const pendingTotal = round2(
     pendingByEmployee.reduce((t, r) => t + r.total, 0));
+
+  /**
+   * How long the oldest unsettled claim has waited.
+   *
+   * Aged from the EXPENSE date here, because expense_reimbursement_status
+   * does not expose reviewed_at. The advance ledger ages from the approval
+   * date, so the two can differ by the approval lag. Adding reviewed_at to
+   * the view would let both use the same anchor.
+   */
+  const AWAITING_WARN_DAYS = 7;
+  const oldestWaitDays = claims
+    .filter((c) => c.is_reimbursable)
+    .reduce((max, c) => {
+      const days = Math.floor(
+        (Date.now() - Date.parse(c.expense_date)) / 86_400_000);
+      return Math.max(max, days);
+    }, 0);
   const excluded = claims.filter(
     (c) => c.reimbursement_status === 'accounted_against_advance');
 
@@ -146,7 +163,10 @@ export function ReimbursementsTab() {
       <div className="stat-grid">
         <StatCard label="Pending reimbursement"
           value={formatCurrency(pendingTotal)}
-          tone={pendingTotal > 0 ? 'warn' : 'default'} />
+          tone={oldestWaitDays >= AWAITING_WARN_DAYS ? 'warn' : 'default'}
+          hint={pendingTotal === 0
+            ? 'Nothing outstanding'
+            : `oldest ${oldestWaitDays} day${oldestWaitDays === 1 ? '' : 's'}`} />
         <StatCard label="Employees awaiting payment"
           value={pendingByEmployee.length} />
         <StatCard label="Payments recorded" value={payments.length} />
