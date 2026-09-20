@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@/lib/useQuery';
 import {
   advanceApi, attendanceApi, attendanceChangeApi, employeesApi, expenseApi,
-  holidayApi, leaveApi, outdoorVisitApi, payrollApi, settingsApi,
+  holidayApi, leaveApi, outdoorVisitApi, payrollApi, reimbursementApi,
+  settingsApi,
 } from '@/lib/api';
 import { isoDate, monthStart } from '@/lib/payroll';
 import { countVisitsForMonth } from '@/lib/visits';
@@ -20,7 +21,7 @@ export function AdminDashboardPage() {
     const [
       employees, todayAtt, monthHolidays, pendingLeave, pendingExp, payroll,
       advances, accounted, pendingCorrections, pendingVisits, monthVisits,
-      previousPayroll, settings,
+      previousPayroll, settings, claimStatus,
     ] = await Promise.all([
       employeesApi.listActive(),
       attendanceApi.listForMonth(month),
@@ -36,6 +37,7 @@ export function AdminDashboardPage() {
       outdoorVisitApi.listForMonth(month),
       payrollApi.listForMonthWithEmployee(previousMonth),
       settingsApi.get(),
+      reimbursementApi.claimStatus(),
     ]);
     const todayStr = isoDate(today);
     return {
@@ -44,7 +46,7 @@ export function AdminDashboardPage() {
       onLeaveToday: todayAtt.filter((a) => a.date === todayStr && a.status === 'paid_leave').length,
       pendingLeave, pendingExp, payroll, month,
       pendingCorrections, pendingVisits, monthVisits, previousPayroll,
-      previousMonth, settings, today,
+      previousMonth, settings, today, claimStatus,
       monthHolidays, todayAtt,
       outstandingAdvance:
         advances.reduce((s, a) => s + Number(a.amount), 0)
@@ -102,6 +104,18 @@ export function AdminDashboardPage() {
   // unmarked attendance.
   const pendingTotal = pendingApprovals + unmarkedToday;
   const visitTotals = countVisitsForMonth(d.monthVisits, d.month);
+
+  /**
+   * Approved claims the company has not settled, by either route. Same
+   * is_reimbursable flag the ledger and Expense Reports use, so all three
+   * agree on what "awaiting settlement" means.
+   */
+  const awaitingClaims = d.claimStatus.reduce(
+    (t, c) => c.is_reimbursable
+      ? { count: t.count + 1, owed: t.owed + Number(c.outstanding_amount) }
+      : t,
+    { count: 0, owed: 0 },
+  );
 
   const STATUS_TONE = {
     none: 'neutral', unpaid: 'danger',
@@ -185,6 +199,17 @@ export function AdminDashboardPage() {
                 Outstanding company advances
               </Link>
               <strong>{formatCurrency(d.outstandingAdvance)}</strong>
+            </li>
+            <li>
+              {/* Expense Reports rather than Reimbursements: these may be
+                  settled either by paying the employee or by accounting them
+                  against an advance, so land somewhere neutral. */}
+              <Link to="/admin/expense-reports">
+                Approved claims awaiting settlement
+              </Link>
+              <strong className={awaitingClaims.count > 0 ? 'count-pending' : undefined}>
+                {formatCurrency(awaitingClaims.owed)}
+              </strong>
             </li>
             <li>
               <Link to="/admin/company-advance">Record company advance</Link>

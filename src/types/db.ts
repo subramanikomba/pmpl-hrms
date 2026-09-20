@@ -10,6 +10,12 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type PayrollStatus = 'draft' | 'processed' | 'paid';
 
 export interface Employee {
+  /**
+   * Record-keeping only. Payroll, proration, the attendance bonus and the
+   * Attendance Not Marked detector deliberately do NOT read these.
+   */
+  joining_date?: string | null;
+  exit_date?: string | null;
   id: string;
   auth_user_id: string | null;
   employee_code: string;

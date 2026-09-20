@@ -118,6 +118,9 @@ a { color: var(--brand); }
 .stat-label { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
 .stat-good .stat-value { color: var(--ok); }
 .stat-warn .stat-value { color: var(--warn); }
+/* Awaiting action: a lighter, brighter shade than the overdue warn tone, so
+   the figure reads as "needs attention" rather than "late". */
+.stat-pending .stat-value { color: var(--info, #3b6b8f); }
 
 /* ── Buttons ────────────────────────────────────────────────── */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -663,3 +666,32 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
   border: 1px solid var(--line); color: var(--muted);
   background: transparent; cursor: pointer; }
 .chip.is-active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+/* Sortable column header. The button inherits the header's colour so the
+   row still reads as a header, not as a link. */
+.th-sort { display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: inherit; font: inherit; }
+.th-arrow { opacity: .45; font-size: 9px; }
+.th-sort.is-active .th-arrow { opacity: 1; }
+.data-table th[style*="right"] .th-sort { flex-direction: row-reverse; }
+
+/* Filter actions, on their own row beneath the controls. */
+.filter-actions { display: flex; justify-content: flex-start; gap: 8px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* An approved claim nobody has settled yet: the money is spent but still
+   hanging. Marked with a left accent rather than a full tint — most rows in
+   a typical report are unsettled, so a tinted block would carry no signal,
+   and a tint is better kept for genuinely rare exceptions. */
+.data-table tr.row-unsettled td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn); }
+.meta { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+/* Whose ledger is on screen, above the figures. */
+.ledger-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.ledger-avatar { width: 42px; height: 42px; border-radius: 50%;
+  background: var(--nav); color: #fff; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+.ledger-name { font-size: 18px; font-weight: 650; margin: 0 0 2px; }

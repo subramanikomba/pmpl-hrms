@@ -84,7 +84,6 @@ export function ReimbursementsTab() {
    * date, so the two can differ by the approval lag. Adding reviewed_at to
    * the view would let both use the same anchor.
    */
-  const AWAITING_WARN_DAYS = 7;
   const oldestWaitDays = claims
     .filter((c) => c.is_reimbursable)
     .reduce((max, c) => {
@@ -163,7 +162,7 @@ export function ReimbursementsTab() {
       <div className="stat-grid">
         <StatCard label="Pending reimbursement"
           value={formatCurrency(pendingTotal)}
-          tone={oldestWaitDays >= AWAITING_WARN_DAYS ? 'warn' : 'default'}
+          tone={pendingTotal === 0 ? 'default' : 'pending'}
           hint={pendingTotal === 0
             ? 'Nothing outstanding'
             : `oldest ${oldestWaitDays} day${oldestWaitDays === 1 ? '' : 's'}`} />

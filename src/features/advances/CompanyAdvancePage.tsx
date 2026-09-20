@@ -125,6 +125,7 @@ export function CompanyAdvancePage() {
   }
 
   const emps = useQuery(() => employeesApi.listActive(), []);
+  const selectedEmployee = (emps.data ?? []).find((e) => e.id === employeeId);
   const ledger = useQuery(
     () => employeeId ? advanceApi.ledgerFor(employeeId) : Promise.resolve([]),
     [employeeId],
@@ -186,7 +187,6 @@ export function CompanyAdvancePage() {
       (Date.now() - Date.parse(from)) / 86_400_000);
     return Math.max(max, days);
   }, 0);
-  const AWAITING_WARN_DAYS = 7;
 
   /** Reverse an accounting entry. Confirmed because it moves the balance. */
   async function unaccount(row: LedgerRow) {
@@ -321,7 +321,7 @@ export function CompanyAdvancePage() {
             control the Admin reaches for most. Fields size to their content
             and wrap, rather than stacking in full-width pairs. */}
         <div className="filter-row">
-          <Select label="Employee" value={employeeId}
+          <Select label="Employee *" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
             {(emps.data ?? []).map((e) => (
@@ -330,9 +330,9 @@ export function CompanyAdvancePage() {
               </option>
             ))}
           </Select>
-          <TextInput label="Date" type="date" value={date}
+          <TextInput label="Date *" type="date" value={date}
             onChange={(e) => setDate(e.target.value)} />
-          <TextInput label="Amount (₹)" type="number" min="0" step="0.01" value={amount}
+          <TextInput label="Amount (₹) *" type="number" min="0" step="0.01" value={amount}
             onChange={(e) => setAmount(e.target.value)} />
           <TextInput label="Reference" value={reference}
             onChange={(e) => setReference(e.target.value)}
@@ -350,6 +350,25 @@ export function CompanyAdvancePage() {
 
       {employeeId && (
         <>
+          {/* Whose ledger this is — the employee selector sits in the card
+              above, so without this the figures have no visible owner. */}
+          {selectedEmployee && (
+            <div className="ledger-head">
+              <div className="ledger-avatar" aria-hidden="true">
+                {`${selectedEmployee.first_name[0] ?? ''}${selectedEmployee.last_name[0] ?? ''}`}
+              </div>
+              <div>
+                <h2 className="ledger-name">
+                  {selectedEmployee.first_name} {selectedEmployee.last_name}
+                </h2>
+                <div className="muted small">
+                  Advance &amp; expense ledger · Employee code{' '}
+                  {selectedEmployee.employee_code}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="stat-grid">
             <StatCard label="Advance given" value={formatCurrency(totalGiven)}
               hint={`Across ${advanceCount} advance${advanceCount === 1 ? '' : 's'}`} />
@@ -365,7 +384,10 @@ export function CompanyAdvancePage() {
             <StatCard
               label="Awaiting settlement"
               value={formatCurrency(awaitingTotal)}
-              tone={oldestWaitDays >= AWAITING_WARN_DAYS ? 'warn' : 'default'}
+              // Always its own colour. Escalating to amber made it identical
+              // to Balance outstanding beside it, which is permanently amber.
+              // The age is carried in the hint instead.
+              tone={awaitingTotal === 0 ? 'default' : 'pending'}
               hint={awaiting.length === 0
                 ? 'Nothing outstanding'
                 : `${awaiting.length} approved claim${awaiting.length === 1 ? '' : 's'}`

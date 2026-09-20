@@ -82,6 +82,9 @@ export const employeesApi = {
     email: string; password: string; first_name: string; last_name: string;
     /** Omit to let the database trigger assign the next automatic code. */
     employee_code?: string;
+    /** Record-keeping only; payroll does not read these. */
+    joining_date?: string | null;
+    exit_date?: string | null;
     designation?: string; pan?: string; phone?: string; is_admin: boolean;
   }): Promise<void> {
     const { data: { session } } = await supabase.auth.getSession();

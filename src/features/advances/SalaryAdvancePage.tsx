@@ -173,7 +173,7 @@ export function SalaryAdvancePage() {
             onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="form-grid-2">
-          <TextInput label="Amount (₹)" type="number" min="0" step="0.01" value={amount}
+          <TextInput label="Amount (₹) *" type="number" min="0" step="0.01" value={amount}
             onChange={(e) => setAmount(e.target.value)} />
           <TextInput label="Note" value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="Purpose" />

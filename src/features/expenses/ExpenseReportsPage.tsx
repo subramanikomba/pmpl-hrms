@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
-import { clientApi, employeesApi, expenseApi } from '@/lib/api';
+import { clientApi, employeesApi, expenseApi, reimbursementApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate, monthStart } from '@/lib/payroll';
 import { FilterIcon } from '@/components/ui/Icons';
@@ -8,7 +8,7 @@ import { FilterIcon } from '@/components/ui/Icons';
 type RangeKey = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom';
 import { Card, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { StatusBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Select, TextInput } from '@/components/ui/Field';
@@ -75,6 +75,8 @@ export function ExpenseReportsPage() {
     return { emps, clients };
   }, []);
 
+  const settle = useQuery(() => reimbursementApi.claimStatus(), [applied]);
+
   const q = useQuery(() => expenseApi.listAll({
     employeeId: employeeId || undefined,
     category: category || undefined,
@@ -85,6 +87,22 @@ export function ExpenseReportsPage() {
   }), [applied]);
 
   const rows = q.data ?? [];
+
+  /**
+   * Is this an approved claim the company has not settled — by reimbursement
+   * or against an advance? The money has been spent but nothing has been
+   * done about it, which is what the highlight is for.
+   */
+  const settleByExpense = new Map(
+    (settle.data ?? []).map((c) => [c.expense_id, c]));
+  const isUnsettled = (r: CompanyExpense) =>
+    settleByExpense.get(r.id)?.is_reimbursable === true;
+
+  // Owed within the filtered set, so it matches the rows on screen.
+  const unsettledRows = rows.filter(isUnsettled);
+  const awaitingCount = unsettledRows.length;
+  const awaitingOwed = unsettledRows.reduce(
+    (t, r) => t + Number(settleByExpense.get(r.id)?.outstanding_amount ?? 0), 0);
   const total = rows.reduce((s, r) => s + Number(r.amount), 0);
   const approvedTotal = rows.filter((r) => r.status === 'approved')
     .reduce((s, r) => s + Number(r.amount), 0);
@@ -96,16 +114,59 @@ export function ExpenseReportsPage() {
   }
 
   const columns: Column<WithEmployee<CompanyExpense>>[] = [
-    { key: 'date', header: 'Date', cell: (r) => formatDate(r.expense_date) },
+    { key: 'date', header: 'Date', cell: (r) => formatDate(r.expense_date),
+      // ISO date, so it sorts chronologically rather than alphabetically.
+      sortValue: (r) => r.expense_date },
     { key: 'emp', header: 'Employee',
-      cell: (r) => `${r.employees?.first_name ?? ''} ${r.employees?.last_name ?? ''}`.trim() || '—' },
-    { key: 'cat', header: 'Category', cell: (r) => r.category },
-    { key: 'amt', header: 'Amount', align: 'right', cell: (r) => formatCurrency(r.amount) },
+      cell: (r) => `${r.employees?.first_name ?? ''} ${r.employees?.last_name ?? ''}`.trim() || '—',
+      // Employee code, so the order matches every other screen.
+      sortValue: (r) => r.employees?.employee_code },
+    { key: 'cat', header: 'Category', cell: (r) => r.category,
+      sortValue: (r) => r.category },
+    { key: 'settle', header: 'Type',
+      cell: (r) => {
+        const st = settleByExpense.get(r.id);
+        if (!st || r.status !== 'approved') {
+          return <span className="muted">—</span>;
+        }
+        if (st.reimbursement_status === 'accounted_against_advance') {
+          return <Badge tone="neutral-alt">Paid from advance</Badge>;
+        }
+        if (st.reimbursement_status === 'reimbursed') {
+          return <Badge tone="success">Settled</Badge>;
+        }
+        if (st.reimbursement_status === 'partially_reimbursed') {
+          return <Badge tone="warn">Partially settled</Badge>;
+        }
+        return <Badge tone="warn">Approved · not settled</Badge>;
+      },
+      sortValue: (r) => settleByExpense.get(r.id)?.reimbursement_status },
+    { key: 'amt', header: 'Amount', align: 'right', cell: (r) => formatCurrency(r.amount),
+      sortValue: (r) => Number(r.amount) },
     { key: 'bill', header: 'Bill no.', cell: (r) => r.bill_number || '—' },
-    { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
-    { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
+    { key: 'desc', header: 'Description',
+      cell: (r) => {
+        const st = settleByExpense.get(r.id);
+        const outstanding = Number(st?.outstanding_amount ?? 0);
+        return (
+          <>
+            {r.description || '—'}
+            {isUnsettled(r) && (
+              <span className="meta">
+                {st?.reimbursement_status === 'partially_reimbursed'
+                  ? `${formatCurrency(outstanding)} still to be settled`
+                  : 'Not yet settled or accounted'}
+              </span>
+            )}
+          </>
+        );
+      } },
+    { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} />,
+      sortValue: (r) => r.status },
     { key: 'acct', header: 'Accounted', align: 'right',
-      cell: (r) => r.accounted_advance_id ? formatCurrency(r.accounted_amount ?? 0) : '—' },
+      cell: (r) => r.accounted_advance_id ? formatCurrency(r.accounted_amount ?? 0) : '—',
+      // Unaccounted claims sort last, which is usually what you want to find.
+      sortValue: (r) => r.accounted_advance_id ? Number(r.accounted_amount ?? 0) : null },
     { key: 'receipt', header: 'Receipt', align: 'right',
       cell: (r) => <ReceiptLink path={r.receipt_url} /> },
   ];
@@ -142,21 +203,14 @@ export function ExpenseReportsPage() {
           </Select>
           <div className="field">
             <span className="field-label">&nbsp;</span>
-            <div className="row-end gap-sm" style={{ marginTop: 0 }}>
-              <Button size="sm" variant="secondary"
-                aria-expanded={moreOpen}
-                onClick={() => setMoreOpen((o) => !o)}>
-                <FilterIcon /> More filters
-                {activeExtra > 0 && (
-                  <span className="filter-count">{activeExtra}</span>
-                )}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={resetFilters}>
-                Reset
-              </Button>
-              <Button size="sm" variant="primary"
-                onClick={() => setApplied((n) => n + 1)}>Apply filters</Button>
-            </div>
+            <Button size="sm" variant="secondary"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((o) => !o)}>
+              <FilterIcon /> More filters
+              {activeExtra > 0 && (
+                <span className="filter-count">{activeExtra}</span>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -183,6 +237,14 @@ export function ExpenseReportsPage() {
             </Select>
           </div>
         )}
+
+        {/* Actions on their own row, so they read as applying to everything
+            above rather than sitting inside the filter grid. */}
+        <div className="filter-actions">
+          <Button size="sm" variant="ghost" onClick={resetFilters}>Reset</Button>
+          <Button size="sm" variant="primary"
+            onClick={() => setApplied((n) => n + 1)}>Apply filters</Button>
+        </div>
       </Card>
 
       {q.loading ? <Spinner label="Loading expenses…" />
@@ -193,6 +255,14 @@ export function ExpenseReportsPage() {
               <StatCard label="Claims" value={rows.length} />
               <StatCard label="Total amount" value={formatCurrency(total)} />
               <StatCard label="Approved amount" value={formatCurrency(approvedTotal)} tone="good" />
+              {/* The figure that actually differs: approved does not mean
+                  settled, so this is what the company still owes. */}
+              <StatCard label="Awaiting settlement"
+                value={formatCurrency(awaitingOwed)}
+                tone={awaitingOwed > 0 ? 'pending' : 'default'}
+                hint={awaitingCount === 0
+                  ? 'Nothing outstanding'
+                  : `${awaitingCount} claim${awaitingCount === 1 ? '' : 's'}`} />
             </div>
 
             {byCategory.size > 0 && (
@@ -210,6 +280,7 @@ export function ExpenseReportsPage() {
             <Card>
               <DataTable
                 columns={columns} rows={rows} rowKey={(r) => r.id}
+                rowClassName={(r) => isUnsettled(r) ? 'row-unsettled' : ''}
                 empty="No expenses match these filters."
                 footer={
                   <tr>

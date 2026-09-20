@@ -174,7 +174,7 @@ export function EmployeeAttendancePage() {
         </p>
         <div className="form-grid-2">
           <TextInput
-            label="From date" type="date" value={from}
+            label="From date *" type="date" value={from}
             onChange={(e) => setFrom(e.target.value)} min={monthStartStr}
           />
           <TextInput

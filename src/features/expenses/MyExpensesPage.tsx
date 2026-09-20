@@ -241,15 +241,15 @@ export function MyExpensesPage() {
           </p>
         )}
         <div className="form-grid-2">
-          <TextInput label="Date" type="date" value={date}
+          <TextInput label="Date *" type="date" value={date}
             onChange={(e) => setDate(e.target.value)} />
-          <Select label="Category" value={category}
+          <Select label="Category *" value={category}
             onChange={(e) => setCategory(e.target.value)}>
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
         </div>
         <div className="form-grid-2">
-          <TextInput label="Amount (₹)" type="number" min="0" step="0.01" value={amount}
+          <TextInput label="Amount (₹) *" type="number" min="0" step="0.01" value={amount}
             onChange={(e) => setAmount(e.target.value)} />
           <TextInput label="Bill number" value={bill}
             onChange={(e) => setBill(e.target.value)} placeholder="Optional" />
@@ -261,6 +261,7 @@ export function MyExpensesPage() {
         </Select>
         <ClientLocationSelect clientId={clientId} value={clientLocationId}
           onChange={setClientLocationId} />
+        <p className="muted small">* Required</p>
         <TextArea label="Description" value={description}
           onChange={(e) => setDescription(e.target.value)} placeholder="Optional details" />
 

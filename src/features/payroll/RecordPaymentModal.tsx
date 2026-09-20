@@ -76,9 +76,9 @@ export function RecordPaymentModal(
       </p>
 
       <div className="form-grid-2">
-        <TextInput label="Payment date" type="date" value={date}
+        <TextInput label="Payment date *" type="date" value={date}
           onChange={(e) => setDate(e.target.value)} />
-        <Select label="Payment mode" value={mode}
+        <Select label="Payment mode *" value={mode}
           onChange={(e) => setMode(e.target.value)}>
           {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
         </Select>

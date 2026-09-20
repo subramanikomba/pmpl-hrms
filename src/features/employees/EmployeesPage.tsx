@@ -18,11 +18,13 @@ interface NewEmployeeForm {
   /** PMPL's own numbering. Blank lets the database assign the next code. */
   employee_code: string;
   first_name: string; last_name: string;
+  joining_date: string; exit_date: string;
   email: string; password: string; designation: string;
   pan: string; phone: string; is_admin: boolean;
 }
 const EMPTY_FORM: NewEmployeeForm = {
   employee_code: '', first_name: '', last_name: '', email: '',
+  joining_date: '', exit_date: '',
   password: '', designation: '', pan: '', phone: '', is_admin: false,
 };
 
@@ -72,6 +74,8 @@ export function EmployeesPage() {
       await employeesApi.create({
         // Omitted when blank so the database trigger assigns the next code.
         employee_code: form.employee_code.trim() || undefined,
+        joining_date: form.joining_date || null,
+        exit_date: form.exit_date || null,
         email: form.email.trim(), password: form.password,
         first_name: form.first_name.trim(), last_name: form.last_name.trim(),
         designation: form.designation.trim(), phone: form.phone.trim(),
@@ -146,9 +150,9 @@ export function EmployeesPage() {
         confirmMessage="Discard this employee’s details?"
       >
         <div className="form-grid-2">
-          <TextInput label="First name" value={form.first_name}
+          <TextInput label="First name *" value={form.first_name}
             onChange={(e) => set('first_name', e.target.value)} />
-          <TextInput label="Last name" value={form.last_name}
+          <TextInput label="Last name *" value={form.last_name}
             onChange={(e) => set('last_name', e.target.value)} />
         </div>
         <TextInput label="Employee code" value={form.employee_code}
@@ -165,17 +169,27 @@ export function EmployeesPage() {
         {/* The browser otherwise offers the signed-in Admin's own saved
             credentials here, because this looks like a login form. These are
             a NEW employee's details, never the current user's. */}
-        <TextInput label="Email address" type="email" value={form.email}
+        <TextInput label="Email address *" type="email" value={form.email}
           autoComplete="off" name="new-employee-email"
           onChange={(e) => set('email', e.target.value)} />
         <div className="form-grid-2">
-          <TextInput label="Temporary password" type="password" value={form.password}
+          <TextInput label="Temporary password *" type="password" value={form.password}
             autoComplete="new-password" name="new-employee-password"
             onChange={(e) => set('password', e.target.value)}
             hint="Minimum 6 characters" />
           <TextInput label="PAN" value={form.pan} maxLength={10}
             onChange={(e) => set('pan', e.target.value)} />
         </div>
+        <div className="form-grid-2">
+          <TextInput label="Joining date" type="date" value={form.joining_date}
+            onChange={(e) => set('joining_date', e.target.value)}
+            hint="For records only — payroll is unaffected" />
+          <TextInput label="Exit date" type="date" value={form.exit_date}
+            min={form.joining_date || undefined}
+            onChange={(e) => set('exit_date', e.target.value)}
+            hint="Leave blank while employed" />
+        </div>
+        <p className="muted small">* Required</p>
         <Checkbox label="This employee is an administrator" checked={form.is_admin}
           onChange={(e) => set('is_admin', e.target.checked)} />
         <div className="row-end gap">
@@ -409,6 +423,8 @@ function EditEmployeeModal(
 ) {
   const toast = useToast();
   const [code, setCode] = useState(employee.employee_code);
+  const [joining, setJoining] = useState(employee.joining_date ?? '');
+  const [exit, setExit] = useState(employee.exit_date ?? '');
   const [first, setFirst] = useState(employee.first_name);
   const [last, setLast] = useState(employee.last_name);
   const [phone, setPhone] = useState(employee.phone ?? '');
@@ -425,6 +441,8 @@ function EditEmployeeModal(
 
   const dirty =
     code !== employee.employee_code
+    || joining !== (employee.joining_date ?? '')
+    || exit !== (employee.exit_date ?? '')
     || first !== employee.first_name || last !== employee.last_name
     || phone !== (employee.phone ?? '')
 
@@ -460,6 +478,8 @@ function EditEmployeeModal(
     try {
       await employeesApi.update(employee.id, {
         employee_code: code.trim(),
+        joining_date: joining || null,
+        exit_date: exit || null,
         first_name: first.trim(),
         last_name: last.trim(),
         phone: phone.trim() || null,
@@ -487,14 +507,14 @@ function EditEmployeeModal(
         Profile details only. Changing these does not affect attendance,
         payroll or previously generated salary slips.
       </p>
-      <TextInput label="Employee code" value={code}
+      <TextInput label="Employee code *" value={code}
         onChange={(e) => setCode(e.target.value)}
         hint="PMPL's own number. Must be unique." />
 
       <div className="form-grid-2">
-        <TextInput label="First name" value={first}
+        <TextInput label="First name *" value={first}
           onChange={(e) => setFirst(e.target.value)} />
-        <TextInput label="Last name" value={last}
+        <TextInput label="Last name *" value={last}
           onChange={(e) => setLast(e.target.value)} />
       </div>
       <div className="form-grid-2">
@@ -516,6 +536,16 @@ function EditEmployeeModal(
         <TextInput label="PAN" value={pan} maxLength={10}
           onChange={(e) => setPan(e.target.value)} />
       </div>
+      <div className="form-grid-2">
+        <TextInput label="Joining date" type="date" value={joining}
+          onChange={(e) => setJoining(e.target.value)}
+          hint="For records only — payroll is unaffected" />
+        <TextInput label="Exit date" type="date" value={exit}
+          min={joining || undefined}
+          onChange={(e) => setExit(e.target.value)}
+          hint="Leave blank while employed" />
+      </div>
+      <p className="muted small">* Required</p>
       <Checkbox label="This employee is an administrator" checked={isAdmin}
         onChange={(e) => setIsAdmin(e.target.checked)} />
 

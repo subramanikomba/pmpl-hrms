@@ -22,7 +22,9 @@ export function StatCard(
   { label, value, tone = 'default', hint }:
   {
     label: string; value: ReactNode;
-    tone?: 'default' | 'warn' | 'good';
+    /** 'pending' marks money awaiting action — always coloured, unlike
+     *  'warn', which is reserved for something overdue. */
+    tone?: 'default' | 'warn' | 'good' | 'pending';
     /** Optional sub-line explaining what the figure covers. */
     hint?: string;
   },
