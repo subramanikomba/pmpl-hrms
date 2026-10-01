@@ -6,11 +6,14 @@ import { Spinner } from '@/components/ui/Spinner';
 import logo from '@/assets/logo.jpg';
 
 export function LoginPage() {
-  const { employee, loading, signIn } = useAuth();
+  const { employee, loading, signIn, authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Shown when the password was correct but the account cannot be used; the
+  // check happens once the session is established, not during signIn.
+  const shownError = error ?? authError;
 
   if (loading) return <Spinner label="Loading…" />;
   // Already signed in — never show the login form behind the app.
@@ -28,9 +31,11 @@ export function LoginPage() {
           ? 'Incorrect email or password.'
           : err,
       );
-      setBusy(false);
     }
-    // On success the auth state change drives the redirect.
+    // Always clear the button. On success the auth state change drives the
+    // redirect, but if the account cannot be used there is no redirect and
+    // the form would otherwise sit on "Signing in…" indefinitely.
+    setBusy(false);
   }
 
   return (
@@ -69,7 +74,7 @@ export function LoginPage() {
           />
         </div>
 
-        {error && <p className="login-error" role="alert">{error}</p>}
+        {shownError && <p className="login-error" role="alert">{shownError}</p>}
 
         <Button type="submit" variant="primary" size="md" disabled={busy} className="full">
           {busy ? 'Signing in…' : 'Sign In'}

@@ -289,6 +289,43 @@ export function employeeMayMark(
 }
 
 /**
+ * Last day of the current month on which an employee may still apply for leave
+ * dated in the PREVIOUS month, so that leave can be regularised before payroll
+ * is run. Applying for leave is a request an Admin must approve, so this window
+ * is deliberately longer than ATTENDANCE_EDIT_CUTOFF_DAY, which governs
+ * unsupervised self-marking of attendance.
+ *
+ * Must stay in step with public.employee_may_apply_leave(date) in Postgres.
+ */
+export const LEAVE_BACKDATE_CUTOFF_DAY = 10;
+
+/**
+ * Earliest date an employee may apply leave for, as of `now`.
+ *
+ * The previous month stays open until LEAVE_BACKDATE_CUTOFF_DAY; from the day
+ * after, only the current month onwards. There is no upper bound — leave may
+ * always be applied for a future date.
+ */
+export function earliestLeaveDate(now: Date = new Date()): Date {
+  const curMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  return now.getDate() <= LEAVE_BACKDATE_CUTOFF_DAY
+    ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    : curMonth;
+}
+
+/**
+ * Client-side twin of the RLS function public.employee_may_apply_leave(date).
+ * Authoritative check is in Postgres.
+ */
+export function employeeMayApplyLeave(
+  d: Date,
+  now: Date = new Date(),
+): boolean {
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return day >= earliestLeaveDate(now);
+}
+
+/**
  * Whether a past-dated change to Present needs Admin approval rather than
  * taking effect immediately. Today's own attendance is always direct; any
  * earlier date raises a request. Mirrors the attendance RLS write policies.

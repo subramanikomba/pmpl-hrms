@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
   isoDate, professionalTaxFor, round2, structureForMonth, employeeMayMark,
+  employeeMayApplyLeave, earliestLeaveDate,
   needsPresentApproval, deriveBonusCounts, qualifiesForAttendanceBonus,
   findUnmarkedAttendance, capRecovery, structureIsLocked,
 } from './payroll';
@@ -529,5 +530,53 @@ describe('structureIsLocked', () => {
   it('is not locked by draft payroll', () => {
     expect(structureIsLocked('2026-08-01', rows(['2026-09-01', 'draft'])))
       .toBe(false);
+  });
+});
+
+describe('employeeMayApplyLeave', () => {
+  it('allows any date in the current month, past or future', () => {
+    const now = new Date(2026, 9, 15); // 15 Oct 2026
+    expect(employeeMayApplyLeave(new Date(2026, 9, 1), now)).toBe(true);
+    expect(employeeMayApplyLeave(new Date(2026, 9, 15), now)).toBe(true);
+    expect(employeeMayApplyLeave(new Date(2026, 9, 31), now)).toBe(true);
+  });
+  it('allows future months — there is no upper bound', () => {
+    const now = new Date(2026, 9, 15);
+    expect(employeeMayApplyLeave(new Date(2026, 11, 25), now)).toBe(true);
+    expect(employeeMayApplyLeave(new Date(2027, 5, 1), now)).toBe(true);
+  });
+  it('allows the previous month up to and including the 10th', () => {
+    expect(employeeMayApplyLeave(new Date(2026, 8, 20), new Date(2026, 9, 1))).toBe(true);
+    expect(employeeMayApplyLeave(new Date(2026, 8, 20), new Date(2026, 9, 10))).toBe(true);
+  });
+  it('blocks the previous month from the 11th', () => {
+    // The 11th is the first day the previous month is closed.
+    expect(employeeMayApplyLeave(new Date(2026, 8, 20), new Date(2026, 9, 11))).toBe(false);
+    expect(employeeMayApplyLeave(new Date(2026, 8, 20), new Date(2026, 9, 15))).toBe(false);
+  });
+  it('blocks months older than the previous one, even before the 10th', () => {
+    expect(employeeMayApplyLeave(new Date(2026, 7, 20), new Date(2026, 9, 3))).toBe(false);
+  });
+  it('rolls over the year boundary without special-casing', () => {
+    // 5 Jan 2027 -> December 2026 still open; 11 Jan -> closed.
+    expect(employeeMayApplyLeave(new Date(2026, 11, 20), new Date(2027, 0, 5))).toBe(true);
+    expect(employeeMayApplyLeave(new Date(2026, 11, 20), new Date(2027, 0, 11))).toBe(false);
+  });
+  it('is wider than the attendance self-marking window', () => {
+    // On the 8th the previous month is closed for self-marking attendance but
+    // still open for a leave request, which an Admin must approve.
+    const eighth = new Date(2026, 9, 8);
+    const day = new Date(2026, 8, 20);
+    expect(employeeMayMark(day, eighth)).toBe(false);
+    expect(employeeMayApplyLeave(day, eighth)).toBe(true);
+  });
+});
+
+describe('earliestLeaveDate', () => {
+  it('is the start of the previous month on or before the 10th', () => {
+    expect(isoDate(earliestLeaveDate(new Date(2026, 9, 10)))).toBe('2026-09-01');
+  });
+  it('is the start of the current month from the 11th', () => {
+    expect(isoDate(earliestLeaveDate(new Date(2026, 9, 11)))).toBe('2026-10-01');
   });
 });

@@ -993,11 +993,26 @@ export const payrollApi = {
 
 /* ── Settings & reference data ─────────────────────────────────── */
 export const settingsApi = {
+  /**
+   * Deliberately NOT .single(). The settings_read policy is
+   * `auth.role() = 'authenticated'`, so a request made before the client has
+   * attached its token returns zero rows — and .single() turns that into
+   * PostgREST's "Cannot coerce the result to a single JSON object", which tells
+   * the user nothing. Reading a list and checking it lets the real cause be
+   * named instead.
+   */
   async get(): Promise<CompanySettings> {
     const { data, error } = await supabase.from('company_settings')
-      .select('*').limit(1).single();
+      .select('*').limit(1);
     if (error) throw new Error(error.message);
-    return data as CompanySettings;
+    const row = (data as CompanySettings[] | null)?.[0];
+    if (!row) {
+      throw new Error(
+        'Company settings could not be read. Please sign in again; if this '
+        + 'persists, contact the administrator.',
+      );
+    }
+    return row;
   },
   async update(id: string, patch: Partial<CompanySettings>): Promise<void> {
     const { error } = await supabase.from('company_settings')

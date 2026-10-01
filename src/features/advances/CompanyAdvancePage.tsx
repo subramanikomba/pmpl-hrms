@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
@@ -295,7 +295,7 @@ export function CompanyAdvancePage() {
           className={`tab ${tab === 'ledger' ? 'is-active' : ''}`}
           onClick={() => setTab('ledger')}
         >
-          Employee ledger
+          Advance ledger
         </button>
         <button
           role="tab" aria-selected={tab === 'summary'}
@@ -476,8 +476,26 @@ export function CompanyAdvancePage() {
             ))}
           </div>
           {ledger.loading ? <Spinner />
+            : allRows.length === 0 ? (
+              /*
+               * An employee who has never held a company advance has no advance
+               * account to state, so a bare "no rows" table reads as missing
+               * data. Their claims are not missing — they went down the
+               * reimbursement route and live on Expense Reports. Said explicitly
+               * because this is the most common reason the ledger looks empty.
+               */
+              <p className="muted">
+                {selectedEmployee
+                  ? `${selectedEmployee.first_name} ${selectedEmployee.last_name} has `
+                  : 'This employee has '}
+                never been given a company advance, so there is no advance ledger
+                to show. Any expense claims they have made are on{' '}
+                <Link to="/admin/expense-reports">Expense Reports</Link>, and
+                anything owed to them appears under Reimbursements.
+              </p>
+            )
             : <DataTable columns={columns} rows={rows} rowKey={(r) => `${r.txn_type}-${r.txn_id}`}
-                empty="No advances or accounted expenses for this employee yet." />}
+                empty="No advances or accounted expenses match this filter." />}
         </Card>
       )}
       </>

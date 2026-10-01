@@ -79,20 +79,32 @@ export function ReimbursementsTab() {
   /**
    * How long the oldest unsettled claim has waited.
    *
-   * Aged from the EXPENSE date here, because expense_reimbursement_status
-   * does not expose reviewed_at. The advance ledger ages from the approval
-   * date, so the two can differ by the approval lag. Adding reviewed_at to
-   * the view would let both use the same anchor.
+   * Aged from the APPROVAL date, not the expense date: before approval the
+   * company has not agreed it owes anything, so counting earlier would blame
+   * settlement for a slow approval. This is the same anchor the Employee
+   * Ledger uses, so the two screens report the same age for the same claim.
+   * A reimbursable claim is approved by definition, so reviewed_at is set;
+   * the fallback only guards against a malformed row.
    */
   const oldestWaitDays = claims
     .filter((c) => c.is_reimbursable)
     .reduce((max, c) => {
       const days = Math.floor(
-        (Date.now() - Date.parse(c.expense_date)) / 86_400_000);
+        (Date.now() - Date.parse(c.reviewed_at ?? c.expense_date)) / 86_400_000);
       return Math.max(max, days);
     }, 0);
+  /**
+   * Approved claims the company has already funded, by handing the employee a
+   * company advance they then accounted against. Summarised as a count and a
+   * total rather than listed: the only job here is to explain why the pending
+   * table holds fewer claims than were approved, and the list grows without
+   * bound — every advance-funded claim ever approved would stay in it. The
+   * per-claim detail lives on Expense Reports, which can be filtered.
+   */
   const excluded = claims.filter(
     (c) => c.reimbursement_status === 'accounted_against_advance');
+  const excludedTotal = round2(
+    excluded.reduce((t, c) => t + Number(c.approved_amount), 0));
 
   /** Build the voucher and open it in the viewer; download is offered there. */
   async function viewVoucher(paymentId: string) {
@@ -226,27 +238,12 @@ export function ReimbursementsTab() {
       </Card>
 
       {excluded.length > 0 && (
-        <Card title="Not reimbursable">
-          <p className="muted small">
-            These approved claims were accounted against a company advance the
-            employee was holding, so the company has already funded them. They
-            cannot be reimbursed again.
-          </p>
-          <ul className="plain-list">
-            {excluded.map((c) => {
-              const e = employees.find((x) => x.id === c.employee_id);
-              return (
-                <li key={c.expense_id}>
-                  <span>
-                    {e ? `${e.employee_code} ${e.first_name}` : '—'}
-                    {' · '}{formatDate(c.expense_date)} · {c.category}
-                  </span>
-                  <strong>{formatCurrency(c.approved_amount)}</strong>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+        <p className="muted small">
+          {excluded.length} approved claim{excluded.length === 1 ? '' : 's'}
+          {' '}({formatCurrency(excludedTotal)}) {excluded.length === 1 ? 'is' : 'are'}
+          {' '}not reimbursable — already funded from a company advance the
+          employee was holding. See Expense Reports for the detail.
+        </p>
       )}
 
       <Card title="Reimbursement payments">

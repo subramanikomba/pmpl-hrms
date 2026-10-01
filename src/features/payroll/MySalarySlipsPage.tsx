@@ -30,11 +30,19 @@ export function MySalarySlipsPage() {
   const { employee } = useAuth();
   const toast = useToast();
   const today = useMemo(() => new Date(), []);
-  const [monthValue, setMonthValue] = useState(monthInputValue(today));
+  // Opens on the PREVIOUS month, not the current one. A slip only exists once
+  // payroll has been paid, and a month's payroll is paid in the month after it,
+  // so the current month is almost always empty. The previous month is the one
+  // the employee actually came to check — and when it is empty, that emptiness
+  // is itself the answer ("not settled yet"), so it is deliberately not
+  // replaced with whichever older slip happens to exist.
+  const defaultMonth = useMemo(
+    () => new Date(today.getFullYear(), today.getMonth() - 1, 1), [today]);
+  const [monthValue, setMonthValue] = useState(monthInputValue(defaultMonth));
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState(false);
 
-  const month = parseMonthInput(monthValue) ?? monthStart(today);
+  const month = parseMonthInput(monthValue) ?? monthStart(defaultMonth);
   const employeeId = employee?.id ?? '';
 
   const refs = useQuery(() => settingsApi.get(), []);
@@ -42,6 +50,13 @@ export function MySalarySlipsPage() {
     () => employeeId ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
     [employeeId, monthValue],
   );
+  // Only to tell "not generated yet" apart from "you have no slips at all",
+  // which need different wording. RLS returns the employee's paid rows only.
+  const history = useQuery(
+    () => employeeId ? payrollApi.listForEmployee(employeeId) : Promise.resolve([]),
+    [employeeId],
+  );
+  const hasAnySlip = (history.data?.length ?? 0) > 0;
 
   // A slip is a record of a payment made, so it appears only once the
   // payment has actually been recorded.
@@ -142,10 +157,20 @@ export function MySalarySlipsPage() {
               )}
             </>
           ) : (
-            <p className="callout-warn">
-              No salary slip is available for {formatMonth(month)} yet. Slips appear
-              once payroll for that month has been processed and marked paid.
-            </p>
+            // Two different situations, deliberately worded differently: a slip
+            // that has not been generated yet is something to wait for; no slips
+            // at all (a new joiner) is not.
+            hasAnySlip || history.loading ? (
+              <p className="callout-warn">
+                <strong>{formatMonth(month)} salary slip is not yet available.</strong>{' '}
+                It will appear here once {formatMonth(month)} payroll has been paid.
+              </p>
+            ) : (
+              <p className="callout-warn">
+                You don’t have any salary slips yet. Your first slip will appear
+                here once payroll for a completed month has been paid.
+              </p>
+            )
           )}
       </Card>
 

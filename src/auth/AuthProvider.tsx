@@ -16,6 +16,8 @@ export interface AuthState {
   /** True while the pre-logout inactivity warning is showing. */
   inactivityWarning: boolean;
   msUntilLogout: number;
+  /** Set when a valid password was refused, e.g. an inactive account. */
+  authError: string | null;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   dismissInactivityWarning: () => void;
@@ -25,9 +27,15 @@ export const AuthContext = createContext<AuthState | null>(null);
 
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'touchstart', 'scroll'] as const;
 
+/** Shown when valid credentials belong to an account that is not active. */
+export const INACTIVE_MESSAGE =
+  'This account is inactive. Please contact your administrator.';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [employee, setEmployee] = useState<Employee | null>(null);
+  /** Why a technically valid sign-in was refused, for the login page. */
+  const [authError, setAuthError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [inactivityWarning, setInactivityWarning] = useState(false);
   const [msUntilLogout, setMsUntilLogout] = useState(0);
@@ -68,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, INACTIVITY_LOGOUT_MS);
   }, [clearTimers, signOut]);
 
-  /** Load the employee profile for a signed-in auth user. */
+    /** Load the employee profile for a signed-in auth user. */
   const loadEmployee = useCallback(async (userId: string): Promise<Employee | null> => {
     const { data, error } = await supabase
       .from('employees')
@@ -110,12 +118,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (event === 'SIGNED_IN') {
-        void (async () => {
-          const emp = await loadEmployee(newSession.user.id);
-          if (cancelled) return;
-          if (emp) { setSession(newSession); setEmployee(emp); resetInactivity(); }
-          else { await supabase.auth.signOut(); }
-        })();
+        // Deferred with setTimeout. supabase-js holds its auth lock for the
+        // duration of this callback, and loadEmployee (a query needing the
+        // session) and signOut (which needs the lock) would both wait on it.
+        // Awaiting them in here deadlocked sign-in — on mobile the frozen tab
+        // was eventually killed by the browser.
+        setTimeout(() => {
+          void (async () => {
+            const emp = await loadEmployee(newSession.user.id);
+            if (cancelled) return;
+            if (emp) { setSession(newSession); setEmployee(emp); resetInactivity(); }
+            else {
+              // Password was right, but the account cannot be used. Say so,
+              // rather than bouncing back to a silent login form. Single-sourced
+              // from INACTIVE_MESSAGE so the wording cannot drift.
+              setAuthError(INACTIVE_MESSAGE);
+              await supabase.auth.signOut();
+            }
+          })();
+        }, 0);
       }
       // TOKEN_REFRESHED: keep the refreshed session, no profile reload needed.
       if (event === 'TOKEN_REFRESHED') setSession(newSession);
@@ -143,7 +164,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Clean up timers on unmount.
   useEffect(() => clearTimers, [clearTimers]);
 
+  /**
+   * Signs in and nothing more.
+   *
+   * Deliberately NO database query here. Immediately after signInWithPassword
+   * resolves, the client may not yet have attached the new token, so a query
+   * made here can run as `anon` — and RLS then returns zero rows for a
+   * perfectly valid employee. A status check in this position therefore
+   * concluded "inactive" and signed real employees straight back out.
+   *
+   * The account-status check lives in the onAuthStateChange listener above,
+   * which runs once the session is established and reports an unusable account
+   * through `authError`. Do not reintroduce a check here.
+   */
   const signIn = useCallback(async (email: string, password: string) => {
+    setAuthError(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error ? error.message : null };
   }, []);
@@ -155,11 +190,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     inactivityWarning,
     msUntilLogout,
+    authError,
     signIn,
     signOut,
     dismissInactivityWarning: resetInactivity,
   }), [session, employee, loading, inactivityWarning, msUntilLogout,
-       signIn, signOut, resetInactivity]);
+       authError, signIn, signOut, resetInactivity]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

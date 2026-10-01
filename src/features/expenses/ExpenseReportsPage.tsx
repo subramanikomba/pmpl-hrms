@@ -1,11 +1,26 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
 import { clientApi, employeesApi, expenseApi, reimbursementApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate, monthStart } from '@/lib/payroll';
 import { FilterIcon } from '@/components/ui/Icons';
 
-type RangeKey = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom';
+type RangeKey =
+  'today' | 'this_week' | 'this_month' | 'last_month' | 'this_fy' | 'custom';
+
+/**
+ * Delays a value so typing into a date field does not fire a query per
+ * keystroke. Used only for the custom From/To inputs: a preset sets both dates
+ * at once and is applied immediately, so presets stay instant.
+ */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
 import { Card, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge, StatusBadge } from '@/components/ui/Badge';
@@ -26,7 +41,6 @@ export function ExpenseReportsPage() {
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState(isoDate(monthStart(now)));
   const [to, setTo] = useState(isoDate(new Date(now.getFullYear(), now.getMonth()+1, 0)));
-  const [applied, setApplied] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const [range, setRange] = useState<RangeKey>('this_month');
 
@@ -50,6 +64,12 @@ export function ExpenseReportsPage() {
       const dow = (n.getDay() + 6) % 7;
       first = new Date(n.getFullYear(), n.getMonth(), n.getDate() - dow);
       last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 6);
+    } else if (key === 'this_fy') {
+      // Indian financial year: 1 April to 31 March. Before April we are still
+      // in the FY that began last calendar year.
+      const fyStart = n.getMonth() >= 3 ? n.getFullYear() : n.getFullYear() - 1;
+      first = new Date(fyStart, 3, 1);
+      last = new Date(fyStart + 1, 2, 31);
     } else {
       const off = key === 'last_month' ? -1 : 0;
       first = new Date(n.getFullYear(), n.getMonth() + off, 1);
@@ -67,7 +87,6 @@ export function ExpenseReportsPage() {
     setStatus('');
     applyRange('this_month');
     setMoreOpen(false);
-    setApplied((n) => n + 1);
   }
 
   const refs = useQuery(async () => {
@@ -75,16 +94,30 @@ export function ExpenseReportsPage() {
     return { emps, clients };
   }, []);
 
-  const settle = useQuery(() => reimbursementApi.claimStatus(), [applied]);
+  // Unfiltered by design — it reports every claim's settlement state, so it is
+  // fetched once rather than on every filter change.
+  const settle = useQuery(() => reimbursementApi.claimStatus(), []);
+
+  /*
+   * Filters apply as they are chosen. There is deliberately no Apply step: the
+   * query was previously keyed on a counter, so the controls and the table could
+   * disagree — someone changing Employee without pressing Apply read one
+   * person's figures as another's. Only the custom date inputs are debounced,
+   * since those are typed; every other control is a single discrete choice.
+   */
+  const debFrom = useDebounced(from, 300);
+  const debTo = useDebounced(to, 300);
+  const qFrom = range === 'custom' ? debFrom : from;
+  const qTo = range === 'custom' ? debTo : to;
 
   const q = useQuery(() => expenseApi.listAll({
     employeeId: employeeId || undefined,
     category: category || undefined,
     clientId: clientId || undefined,
     status: (status || undefined) as CompanyExpense['status'] | undefined,
-    from: from || undefined,
-    to: to || undefined,
-  }), [applied]);
+    from: qFrom || undefined,
+    to: qTo || undefined,
+  }), [employeeId, category, clientId, status, qFrom, qTo]);
 
   const rows = q.data ?? [];
 
@@ -186,12 +219,31 @@ export function ExpenseReportsPage() {
             <option value="this_week">This week</option>
             <option value="this_month">This month</option>
             <option value="last_month">Last month</option>
+            <option value="this_fy">This financial year</option>
             <option value="custom">Custom</option>
           </Select>
-          <TextInput label="From date" type="date" value={from}
-            onChange={(e) => { setFrom(e.target.value); setRange('custom'); }} />
-          <TextInput label="To date" type="date" value={to}
-            onChange={(e) => { setTo(e.target.value); setRange('custom'); }} />
+          {/* On a preset the dates are shown as text, not inputs: two pickers
+              are the bulk of this row's weight and are rarely touched, but the
+              period being reported must still be stated — reading money figures
+              without knowing the period is the same trap as a stale table.
+              Choosing Custom reveals the inputs, pre-filled with the preset's
+              dates so a range can be nudged rather than retyped. They cannot
+              then contradict the dropdown, because they only exist in Custom. */}
+          {range === 'custom' ? (
+            <>
+              <TextInput label="From date" type="date" value={from}
+                onChange={(e) => setFrom(e.target.value)} />
+              <TextInput label="To date" type="date" value={to}
+                onChange={(e) => setTo(e.target.value)} />
+            </>
+          ) : (
+            <div className="field">
+              <span className="field-label">Showing</span>
+              <p className="range-label">
+                {formatDate(from)} – {formatDate(to)}
+              </p>
+            </div>
+          )}
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>
@@ -238,12 +290,11 @@ export function ExpenseReportsPage() {
           </div>
         )}
 
-        {/* Actions on their own row, so they read as applying to everything
+        {/* Reset only: filters apply as they are chosen, so there is nothing to
+            confirm. Kept on its own row so it reads as applying to everything
             above rather than sitting inside the filter grid. */}
         <div className="filter-actions">
           <Button size="sm" variant="ghost" onClick={resetFilters}>Reset</Button>
-          <Button size="sm" variant="primary"
-            onClick={() => setApplied((n) => n + 1)}>Apply filters</Button>
         </div>
       </Card>
 

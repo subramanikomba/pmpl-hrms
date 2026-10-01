@@ -1,0 +1,25 @@
+-- Close an RLS bypass on the derived reimbursement-status view.
+--
+-- The view was created without security_invoker, so it ran with its owner's
+-- privileges (postgres) and ignored row-level security on company_expenses.
+-- An employee querying it could read every colleague's expense history: as
+-- EMP121, company_expenses returned his own 5 rows while the view returned 14
+-- rows across 3 employees.
+--
+-- security_invoker makes the view run as the querying user, so the existing
+-- policies on company_expenses apply:
+--   exp_own_read   employee_id = current_employee_id()
+--   exp_admin      current_is_admin()
+-- Admin therefore still sees everything; an employee sees only their own rows.
+--
+-- The sibling view public.company_advance_ledger already has
+-- security_invoker=on, which is why its absence here was an oversight rather
+-- than a deliberate choice.
+--
+-- NOTE for future edits: CREATE OR REPLACE VIEW without a WITH clause resets
+-- reloptions, so any later redefinition of this view must restate
+-- WITH (security_invoker = on) or re-run this ALTER, or the bypass returns.
+--
+-- No data is modified and the view's columns are unchanged; only who may read
+-- which rows changes.
+alter view public.expense_reimbursement_status set (security_invoker = on);

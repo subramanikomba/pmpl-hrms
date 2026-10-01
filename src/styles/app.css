@@ -638,6 +638,11 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .filter-row > .field { margin-bottom: 0; }
 @media (max-width: 560px) { .filter-row > * { flex: 1 1 100%; } }
 
+/* Resolved date range shown in place of the From/To inputs when a preset is
+   selected. Padding and font match .input so the row's baseline is unbroken. */
+.range-label { margin: 0; padding: 9px 0; font-size: 14px; font-weight: 600;
+  color: var(--ink); white-space: nowrap; }
+
 /* Count of active filters hidden behind "More filters". */
 .filter-count { display: inline-block; margin-left: 6px; min-width: 18px;
   padding: 0 5px; border-radius: 9px; background: var(--line);

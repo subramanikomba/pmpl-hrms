@@ -150,6 +150,11 @@ export interface ExpenseReimbursementStatus {
   outstanding_amount: number;
   is_reimbursable: boolean;
   reimbursement_status: ReimbursementStatus;
+  /**
+   * When Admin approved or rejected the claim. Null until reviewed. Settlement
+   * aging runs from this, not expense_date — see the note in ReimbursementsTab.
+   */
+  reviewed_at: string | null;
 }
 
 export interface LeaveRequest {

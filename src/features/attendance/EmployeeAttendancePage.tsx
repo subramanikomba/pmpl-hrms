@@ -7,7 +7,10 @@ import {
   expenseApi, settingsApi,
 } from '@/lib/api';
 import { AttendanceMonthSection } from './AttendanceMonthSection';
-import { computePaidDays, isoDate, monthStart } from '@/lib/payroll';
+import {
+  computePaidDays, earliestLeaveDate, isoDate, monthStart,
+  LEAVE_BACKDATE_CUTOFF_DAY,
+} from '@/lib/payroll';
 import { formatCurrency, formatDate, formatMonth } from '@/lib/format';
 import { Badge } from '@/components/ui/Badge';
 import { Card, StatCard } from '@/components/ui/Card';
@@ -65,8 +68,12 @@ export function EmployeeAttendancePage() {
   const isHoliday = holidayDates.has(todayStr);
   const alreadyPresent = todayRecord?.status === 'present';
   const pendingRequests = requests.filter((r) => r.status === 'pending');
-  // Leave may be applied for any day in the current month, past or future.
-  const monthStartStr = isoDate(monthStart(today));
+  // Leave may be applied for any day from the earliest open date onwards. That
+  // is the start of the previous month until the 10th of this one, so leave can
+  // be regularised before payroll is run; the start of this month afterwards.
+  const earliestLeave = earliestLeaveDate(today);
+  const earliestLeaveStr = isoDate(earliestLeave);
+  const prevMonthOpen = earliestLeave < monthStart(today);
 
   const outstandingAdvance = ledger.length > 0
     ? (ledger[ledger.length - 1]?.running_balance ?? 0)
@@ -91,13 +98,16 @@ export function EmployeeAttendancePage() {
   async function applyLeave() {
     if (!from) { toast.error('Choose a start date for your leave.'); return; }
     const end = to || from;
-    // Past dates are allowed within the current month, so a day already taken
-    // off can be regularised as leave rather than being left as Absent. Older
-    // months are closed; the same bound is enforced by RLS.
-    if (from < monthStartStr) {
+    // Past dates are allowed back to the earliest open date, so a day already
+    // taken off can be regularised as leave rather than being left as Absent.
+    // Older months are closed; the same bound is enforced by RLS.
+    if (from < earliestLeaveStr) {
       toast.error(
-        'Leave can be applied for dates in this month or later. '
-        + 'For an earlier month, please ask Admin.',
+        prevMonthOpen
+          ? `Leave can be applied for dates from ${formatDate(earliestLeaveStr)} `
+            + 'onwards. For an earlier month, please ask Admin.'
+          : `Last month closed for leave applications on the `
+            + `${LEAVE_BACKDATE_CUTOFF_DAY}th. For an earlier month, please ask Admin.`,
       );
       return;
     }
@@ -168,18 +178,27 @@ export function EmployeeAttendancePage() {
 
       <Card title="Apply for leave">
         <p className="muted small">
-          You can apply for a future date, or for a day earlier this month that
-          you were away — for example a day taken off in lieu of working a
-          Sunday. Admin approves it, and approved leave counts as a paid day.
+          You can apply for a future date, or for a past day you were away — for
+          example a day taken off in lieu of working a Sunday. Admin approves it,
+          and approved leave counts as a paid day.
+        </p>
+        <p className="muted small">
+          {prevMonthOpen
+            ? `${formatMonth(earliestLeave)} is still open, until the `
+              + `${LEAVE_BACKDATE_CUTOFF_DAY}th of this month, so leave can be `
+              + 'adjusted before payroll is run.'
+            : `Last month closed for leave applications on the `
+              + `${LEAVE_BACKDATE_CUTOFF_DAY}th. For an earlier month, please `
+              + 'ask Admin.'}
         </p>
         <div className="form-grid-2">
           <TextInput
             label="From date *" type="date" value={from}
-            onChange={(e) => setFrom(e.target.value)} min={monthStartStr}
+            onChange={(e) => setFrom(e.target.value)} min={earliestLeaveStr}
           />
           <TextInput
             label="To date" type="date" value={to}
-            onChange={(e) => setTo(e.target.value)} min={from || monthStartStr}
+            onChange={(e) => setTo(e.target.value)} min={from || earliestLeaveStr}
             hint="Leave blank for a single day"
           />
         </div>
