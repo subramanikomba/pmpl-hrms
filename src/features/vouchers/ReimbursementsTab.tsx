@@ -48,13 +48,28 @@ export function ReimbursementsTab() {
 
   const employees = q.data?.employees ?? [];
   const allClaims = q.data?.claims ?? [];
-  const payments = q.data?.payments ?? [];
+  const allPayments = q.data?.payments ?? [];
 
   const claims = useMemo(
     () => (employeeId
       ? allClaims.filter((c) => c.employee_id === employeeId)
       : allClaims),
     [allClaims, employeeId],
+  );
+
+  /*
+   * Payments narrowed by the same employee filter as the claims above.
+   * Everything on this tab reads from `payments`, never the unfiltered list:
+   * the stat card previously counted every payment in the company while the
+   * table below it was filtered, so selecting an employee with no payments
+   * showed "Payments recorded 1" above an empty table — and the empty-state
+   * message was skipped for the same reason.
+   */
+  const payments = useMemo(
+    () => (employeeId
+      ? allPayments.filter((p) => p.employee_id === employeeId)
+      : allPayments),
+    [allPayments, employeeId],
   );
 
   /** Employees with something still owed, and how much. */
@@ -255,7 +270,11 @@ export function ReimbursementsTab() {
 
       <Card title="Reimbursement payments">
         {payments.length === 0 ? (
-          <p className="muted">No reimbursement payments recorded yet.</p>
+          <p className="muted">
+            {employeeId
+              ? 'No reimbursement payments recorded for this employee.'
+              : 'No reimbursement payments recorded yet.'}
+          </p>
         ) : (
           <div className="table-scroll">
             <table className="data-table">
@@ -271,7 +290,6 @@ export function ReimbursementsTab() {
               </thead>
               <tbody>
                 {payments
-                  .filter((p) => !employeeId || p.employee_id === employeeId)
                   .map((p) => (
                     <tr key={p.id}>
                       <td><strong>{p.voucher_no}</strong></td>
