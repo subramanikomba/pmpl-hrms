@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
@@ -235,16 +236,22 @@ export function ReimbursementsTab() {
             </table>
           </div>
         )}
-      </Card>
 
-      {excluded.length > 0 && (
-        <p className="muted small">
-          {excluded.length} approved claim{excluded.length === 1 ? '' : 's'}
-          {' '}({formatCurrency(excludedTotal)}) {excluded.length === 1 ? 'is' : 'are'}
-          {' '}not reimbursable — already funded from a company advance the
-          employee was holding. See Expense Reports for the detail.
-        </p>
-      )}
+        {/* Footnote to THIS card, not a floating paragraph between cards: it
+            answers the question this table raises — why fewer claims are listed
+            than were approved — so it belongs under the table it explains. */}
+        {excluded.length > 0 && (
+          <p className="card-footnote">
+            <strong>
+              {excluded.length} claim{excluded.length === 1 ? '' : 's'}
+              {' '}({formatCurrency(excludedTotal)})
+              {' '}{excluded.length === 1 ? 'is' : 'are'} not reimbursable
+            </strong>
+            {' — already funded from a company advance. Detail on '}
+            <Link to="/admin/expense-reports">Expense Reports</Link>.
+          </p>
+        )}
+      </Card>
 
       <Card title="Reimbursement payments">
         {payments.length === 0 ? (

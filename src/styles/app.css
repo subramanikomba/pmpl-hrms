@@ -42,6 +42,20 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/*
+ * Always reserve the vertical scrollbar's width, whether or not the page needs
+ * one. Screens differ in height — the Dashboard scrolls, the Expense Ledger
+ * with no employee chosen does not — so without this the scrollbar appears and
+ * disappears on navigation, narrowing the viewport and shifting the centred
+ * layout sideways by 10–16px on every menu change.
+ *
+ * Browsers without scrollbar-gutter (Safari below 16) simply keep the old
+ * behaviour; nothing breaks. Overlay scrollbars (macOS, iOS, Android) take no
+ * layout width, so there is no gutter to reserve and this has no effect there.
+ */
+html { scrollbar-gutter: stable; }
+
 body { font-family: var(--font); background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
 a { color: var(--brand); }
 
@@ -637,6 +651,13 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .filter-row > * { flex: 0 1 auto; min-width: 180px; }
 .filter-row > .field { margin-bottom: 0; }
 @media (max-width: 560px) { .filter-row > * { flex: 1 1 100%; } }
+
+/* A note belonging to the card above it — separated by a hairline so it reads
+   as a footnote to that content rather than a floating paragraph, but kept
+   quieter than the content itself. */
+.card-footnote { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.card-footnote strong { color: var(--ink); font-weight: 600; }
 
 /* Resolved date range shown in place of the From/To inputs when a preset is
    selected. Padding and font match .input so the row's baseline is unbroken. */
