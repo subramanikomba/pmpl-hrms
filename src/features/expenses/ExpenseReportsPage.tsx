@@ -321,17 +321,23 @@ export function ExpenseReportsPage() {
         : (
           <>
             <div className="stat-grid">
+              {/* These three money figures NEST, they do not sum: awaiting is
+                  a subset of approved, which is a subset of claimed. The hints
+                  say so, because four tiles in a row otherwise read as parts of
+                  a whole and invite adding them up. */}
               <StatCard label="Claims" value={rows.length} />
-              <StatCard label="Total amount" value={formatCurrency(total)} />
-              <StatCard label="Approved amount" value={formatCurrency(approvedTotal)} tone="good" />
-              {/* The figure that actually differs: approved does not mean
-                  settled, so this is what the company still owes. */}
+              <StatCard label="Total claimed amount" value={formatCurrency(total)}
+                hint="All statuses" />
+              <StatCard label="Total approved amount"
+                value={formatCurrency(approvedTotal)} tone="good"
+                hint="Included in claimed" />
               <StatCard label="Awaiting settlement"
                 value={formatCurrency(awaitingOwed)}
                 tone={awaitingOwed > 0 ? 'pending' : 'default'}
                 hint={awaitingCount === 0
                   ? 'Nothing outstanding'
-                  : `${awaitingCount} claim${awaitingCount === 1 ? '' : 's'}`} />
+                  : `${awaitingCount} claim${awaitingCount === 1 ? '' : 's'}, `
+                    + 'included in approved'} />
             </div>
 
             {byCategory.size > 0 && (
