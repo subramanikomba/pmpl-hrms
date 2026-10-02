@@ -22,13 +22,18 @@ export function SalarySlipsPage() {
   const toast = useToast();
   const today = useMemo(() => new Date(), []);
   const [employeeId, setEmployeeId] = useState('');
-  const [monthValue, setMonthValue] = useState(monthInputValue(today));
+  // Opens on the PREVIOUS month, matching My Salary Slips. A slip exists only
+  // once payroll has been paid, and a month's payroll is paid in the month
+  // after it, so the current month is almost always empty.
+  const defaultMonth = useMemo(
+    () => new Date(today.getFullYear(), today.getMonth() - 1, 1), [today]);
+  const [monthValue, setMonthValue] = useState(monthInputValue(defaultMonth));
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  const month = parseMonthInput(monthValue) ?? monthStart(today);
+  const month = parseMonthInput(monthValue) ?? monthStart(defaultMonth);
   const refs = useQuery(async () => {
     const [employees, settings] = await Promise.all([
       employeesApi.listActive(), settingsApi.get(),
@@ -40,6 +45,17 @@ export function SalarySlipsPage() {
     () => employeeId ? payrollApi.getOne(employeeId, month) : Promise.resolve(null),
     [employeeId, monthValue],
   );
+
+  /*
+   * Every payroll row for the month, used only to know how many slips the ZIP
+   * would contain. Without it the bulk button is always enabled and the user
+   * learns the month is empty only after clicking and waiting for the fetch.
+   * Independent of the employee filter: the ZIP covers everyone.
+   */
+  const monthRows = useQuery(() => payrollApi.listForMonth(month), [monthValue]);
+  const paidCount = (monthRows.data ?? [])
+    .filter((r) => r.status === 'paid' && r.payment_date).length;
+  const bulkReady = paidCount > 0;
 
   // A salary slip is a record of a payment made, so it is only issued once
   // the payment has actually been recorded — not merely processed.
@@ -94,6 +110,9 @@ export function SalarySlipsPage() {
       const payable = rows.filter(
         (r) => r.status === 'paid' && r.payment_date);
 
+      // Safety net only: the button is disabled when the month has no paid
+      // slips, so this is reachable only if a payment was un-recorded between
+      // the page loading and the click.
       if (payable.length === 0) {
         toast.error(
           `No salary slips are available for ${formatMonth(month)}. `
@@ -260,12 +279,26 @@ export function SalarySlipsPage() {
       </Card>
 
       <Card title={`All salary slips — ${formatMonth(month)}`}>
-        <p className="muted small">
-          Downloads one ZIP containing a PDF slip for every employee whose
-          payment for this month has been recorded. Word files are not included.
-        </p>
+        {/* The button is disabled unless the month actually has paid slips, so
+            an empty month is visible before clicking rather than after. */}
+        {monthRows.loading ? (
+          <p className="muted small">Checking this month’s salary slips…</p>
+        ) : bulkReady ? (
+          <p className="muted small">
+            Downloads one ZIP containing a PDF slip for each of the{' '}
+            <strong>{paidCount}</strong> employee{paidCount === 1 ? '' : 's'}
+            {' '}paid in {formatMonth(month)}. Word files are not included.
+          </p>
+        ) : (
+          <p className="callout-warn">
+            No salary slips are available for {formatMonth(month)}. Slips appear
+            once payroll for the month has been processed and the payments
+            recorded.
+          </p>
+        )}
         <div className="row-end gap">
-          <Button variant="secondary" disabled={bulkBusy}
+          <Button variant="secondary"
+            disabled={bulkBusy || monthRows.loading || !bulkReady}
             onClick={() => void downloadAll()}>
             {bulkBusy ? 'Preparing…' : 'Download all salary slips (ZIP)'}
           </Button>

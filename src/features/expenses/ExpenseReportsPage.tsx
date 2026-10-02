@@ -2,11 +2,55 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
 import { clientApi, employeesApi, expenseApi, reimbursementApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
-import { isoDate, monthStart } from '@/lib/payroll';
+import { isoDate } from '@/lib/payroll';
 import { FilterIcon } from '@/components/ui/Icons';
 
 type RangeKey =
   'today' | 'this_week' | 'this_month' | 'last_month' | 'this_fy' | 'custom';
+
+/**
+ * Presets in chronological order — each period starts earlier than the one
+ * before it — with Custom last because it is not a period at all. Rendering the
+ * dropdown from this list keeps the visible order and the key set in one place.
+ */
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'this_week', label: 'This week' },
+  { key: 'this_month', label: 'This month' },
+  { key: 'last_month', label: 'Last month' },
+  { key: 'this_fy', label: 'This financial year' },
+  { key: 'custom', label: 'Custom' },
+];
+
+/** The range the screen opens on, and the one Reset returns to. */
+const DEFAULT_RANGE: RangeKey = 'this_fy';
+
+/**
+ * First and last day of a preset range, or null for 'custom', which has no
+ * computed span. Pure and date-injected so the initial state, the dropdown and
+ * Reset all derive their dates from one place and cannot drift apart.
+ */
+function rangeDates(key: RangeKey, n: Date): [Date, Date] | null {
+  if (key === 'custom') return null;
+  if (key === 'today') return [n, n];
+  if (key === 'this_week') {
+    // Week starts Monday, matching the Mon-Sat working calendar.
+    const dow = (n.getDay() + 6) % 7;
+    const first = new Date(n.getFullYear(), n.getMonth(), n.getDate() - dow);
+    return [first, new Date(first.getFullYear(), first.getMonth(), first.getDate() + 6)];
+  }
+  if (key === 'this_fy') {
+    // Indian financial year: 1 April to 31 March. Before April we are still in
+    // the FY that began last calendar year.
+    const fyStart = n.getMonth() >= 3 ? n.getFullYear() : n.getFullYear() - 1;
+    return [new Date(fyStart, 3, 1), new Date(fyStart + 1, 2, 31)];
+  }
+  const off = key === 'last_month' ? -1 : 0;
+  return [
+    new Date(n.getFullYear(), n.getMonth() + off, 1),
+    new Date(n.getFullYear(), n.getMonth() + off + 1, 0),
+  ];
+}
 
 /**
  * Delays a value so typing into a date field does not fire a query per
@@ -39,44 +83,21 @@ export function ExpenseReportsPage() {
   const [category, setCategory] = useState('');
   const [clientId, setClientId] = useState('');
   const [status, setStatus] = useState('');
-  const [from, setFrom] = useState(isoDate(monthStart(now)));
-  const [to, setTo] = useState(isoDate(new Date(now.getFullYear(), now.getMonth()+1, 0)));
+  const [from, setFrom] = useState(isoDate(rangeDates(DEFAULT_RANGE, now)![0]));
+  const [to, setTo] = useState(isoDate(rangeDates(DEFAULT_RANGE, now)![1]));
   const [moreOpen, setMoreOpen] = useState(false);
-  const [range, setRange] = useState<RangeKey>('this_month');
+  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
 
   // Shown on the collapsed button so a hidden filter is never forgotten.
   const activeExtra = [category, clientId, status].filter(Boolean).length;
 
-  /**
-   * Preset date ranges. Choosing one fills From/To; editing either date
-   * afterwards switches the dropdown back to Custom, so the two can never
-   * disagree about what is being shown.
-   */
+  /** Choosing a preset fills From/To from the same function the default uses. */
   function applyRange(key: RangeKey) {
     setRange(key);
-    if (key === 'custom') return;
-    const n = new Date();
-    let first: Date, last: Date;
-    if (key === 'today') {
-      first = last = n;
-    } else if (key === 'this_week') {
-      // Week starts Monday, matching the Mon-Sat working calendar.
-      const dow = (n.getDay() + 6) % 7;
-      first = new Date(n.getFullYear(), n.getMonth(), n.getDate() - dow);
-      last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 6);
-    } else if (key === 'this_fy') {
-      // Indian financial year: 1 April to 31 March. Before April we are still
-      // in the FY that began last calendar year.
-      const fyStart = n.getMonth() >= 3 ? n.getFullYear() : n.getFullYear() - 1;
-      first = new Date(fyStart, 3, 1);
-      last = new Date(fyStart + 1, 2, 31);
-    } else {
-      const off = key === 'last_month' ? -1 : 0;
-      first = new Date(n.getFullYear(), n.getMonth() + off, 1);
-      last = new Date(n.getFullYear(), n.getMonth() + off + 1, 0);
-    }
-    setFrom(isoDate(first));
-    setTo(isoDate(last));
+    const span = rangeDates(key, new Date());
+    if (!span) return;            // 'custom' keeps whatever dates are showing
+    setFrom(isoDate(span[0]));
+    setTo(isoDate(span[1]));
   }
 
   /** Clear every filter back to the screen's default view. */
@@ -85,7 +106,7 @@ export function ExpenseReportsPage() {
     setCategory('');
     setClientId('');
     setStatus('');
-    applyRange('this_month');
+    applyRange(DEFAULT_RANGE);
     setMoreOpen(false);
   }
 
@@ -215,12 +236,9 @@ export function ExpenseReportsPage() {
         <div className="filter-row">
           <Select label="Range" value={range}
             onChange={(e) => applyRange(e.target.value as RangeKey)}>
-            <option value="today">Today</option>
-            <option value="this_week">This week</option>
-            <option value="this_month">This month</option>
-            <option value="last_month">Last month</option>
-            <option value="this_fy">This financial year</option>
-            <option value="custom">Custom</option>
+            {RANGES.map((r) => (
+              <option key={r.key} value={r.key}>{r.label}</option>
+            ))}
           </Select>
           {/* On a preset the dates are shown as text, not inputs: two pickers
               are the bulk of this row's weight and are rarely touched, but the
