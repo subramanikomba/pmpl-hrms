@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 
 export interface Column<T> {
   key: string;
@@ -19,10 +19,17 @@ export interface Column<T> {
 type SortState = { key: string; dir: 'asc' | 'desc' } | null;
 
 export function DataTable<T>(
-  { columns, rows, rowKey, rowClassName, empty = 'No records found.', footer }:
+  { columns, rows, rowKey, rowClassName, expanded,
+    empty = 'No records found.', footer }:
   { columns: Column<T>[]; rows: readonly T[]; rowKey: (row: T) => string;
     /** Optional per-row class, for highlighting an exceptional row. */
     rowClassName?: (row: T) => string;
+    /**
+     * Optional detail panel drawn in a full-width row beneath this one.
+     * Return null (the default for every existing caller) to draw nothing.
+     * The caller owns which row is open; this only renders what it is given.
+     */
+    expanded?: (row: T) => ReactNode;
     empty?: ReactNode; footer?: ReactNode },
 ) {
   const [sort, setSort] = useState<SortState>(null);
@@ -101,15 +108,30 @@ export function DataTable<T>(
               <td colSpan={columns.length} className="table-empty">{empty}</td>
             </tr>
           ) : (
-            sorted.map((row) => (
-              <tr key={rowKey(row)} className={rowClassName?.(row) || undefined}>
-                {columns.map((c) => (
-                  <td key={c.key} style={{ textAlign: c.align ?? 'left' }}>
-                    {c.cell(row)}
-                  </td>
-                ))}
-              </tr>
-            ))
+            sorted.map((row) => {
+              const detail = expanded?.(row) ?? null;
+              const key = rowKey(row);
+              return (
+                <Fragment key={key}>
+                  <tr className={rowClassName?.(row) || undefined}>
+                    {columns.map((c) => (
+                      <td key={c.key} style={{ textAlign: c.align ?? 'left' }}>
+                        {c.cell(row)}
+                      </td>
+                    ))}
+                  </tr>
+                  {detail && (
+                    <tr className="row-detail">
+                      <td colSpan={columns.length}>
+                        {/* Sticky so the panel stays readable when a wide table
+                            is scrolled sideways on a narrow screen. */}
+                        <div className="row-detail-inner">{detail}</div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })
           )}
         </tbody>
         {footer && <tfoot>{footer}</tfoot>}
