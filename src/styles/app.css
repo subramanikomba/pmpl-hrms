@@ -652,6 +652,51 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .filter-row > .field { margin-bottom: 0; }
 @media (max-width: 560px) { .filter-row > * { flex: 1 1 100%; } }
 
+/* ── Expandable amount + its breakdown panel ────────────────────
+   The figure must not move or change weight when it becomes a button, or the
+   numeric column shifts; only the hover affordance is new. */
+.amount-toggle { appearance: none; background: none; border: 0; padding: 0;
+  font: inherit; color: inherit; cursor: pointer; text-align: right;
+  display: inline-flex; align-items: baseline; gap: 5px;
+  transition: color .12s; }
+/* Colour carries the hover, not a hairline underline: --line on white is too
+   faint to register, which is why the first attempt looked like no hover at
+   all. --brand is 4.57:1 on white, so the change is unmistakable. */
+.amount-toggle:hover { color: var(--brand); text-decoration: underline;
+  text-decoration-color: currentColor; text-underline-offset: 3px; }
+.amount-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px;
+  border-radius: 3px; }
+/* Visible at rest — muted, but present, so the figure is discoverably
+   expandable without having to hover to find out. */
+.amount-caret { font-size: 9px; color: var(--muted); opacity: .5;
+  transition: opacity .12s, color .12s; }
+.amount-toggle:hover .amount-caret { opacity: 1; color: var(--brand); }
+.amount-toggle.is-open { color: var(--brand); font-weight: 600; }
+.amount-toggle.is-open .amount-caret { opacity: 1; color: var(--brand); }
+
+/* The open row and its panel share one tint, so the panel plainly belongs to
+   the row above it rather than floating between rows. */
+.data-table tr.is-expanded > td { background: var(--field-bg); }
+.row-detail > td { background: var(--field-bg); padding: 0 0 12px;
+  border-bottom: 1px solid var(--line); }
+/* Sticky keeps the panel at the viewport's left edge when a table wider than
+   the screen is scrolled sideways, instead of drifting out of view. */
+.row-detail-inner { position: sticky; left: 0; padding: 0 14px; }
+
+.breakdown { max-width: 520px; background: var(--surface);
+  border: 1px solid var(--field-line); border-left: 3px solid var(--brand);
+  border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow); }
+.breakdown-head { font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--ink-2); margin-bottom: 8px; }
+.breakdown-list { list-style: none; margin: 0; padding: 0; }
+.breakdown-list li { display: flex; justify-content: space-between;
+  align-items: baseline; gap: 16px; padding: 6px 0;
+  border-bottom: 1px solid var(--line); font-size: 13px; }
+.breakdown-when { min-width: 0; }
+.breakdown-amt { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The last entry needs no rule beneath it — the panel's own border closes it. */
+.breakdown-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+
 /* A note belonging to the card above it — separated by a hairline so it reads
    as a footnote to that content rather than a floating paragraph, but kept
    quieter than the content itself. */
