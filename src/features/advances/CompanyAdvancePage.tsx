@@ -515,9 +515,23 @@ interface SummaryRow {
   accounted: number;
   outstanding: number;
   pending: number;
+  /**
+   * The transactions behind `given` and `accounted`. Kept rather than summed
+   * away: ledgerAll() already returns every row, so the breakdown costs no
+   * extra query — only the choice not to discard it.
+   */
+  advances: LedgerRow[];
+  expenses: LedgerRow[];
 }
 
+/** Which amount cell, if any, is showing its breakdown. */
+type OpenCell = { employeeId: string; kind: 'advances' | 'expenses' } | null;
+
 function AdvanceExpenseSummary() {
+  // One breakdown open at a time: the table stays short enough to scan, and
+  // there is never a question of which panel belongs to which row.
+  const [open, setOpen] = useState<OpenCell>(null);
+
   const q = useQuery(async () => {
     const [employees, ledger, pending] = await Promise.all([
       employeesApi.listActive(),
@@ -538,6 +552,11 @@ function AdvanceExpenseSummary() {
         employee, given, accounted,
         outstanding: round2(given - accounted),
         pending: pendingCount.get(employee.id) ?? 0,
+        // Oldest first, so a breakdown reads the way a statement does.
+        advances: mine.filter((l) => l.txn_type === 'advance')
+          .sort((a, b) => a.txn_date.localeCompare(b.txn_date)),
+        expenses: mine.filter((l) => l.txn_type === 'expense')
+          .sort((a, b) => a.txn_date.localeCompare(b.txn_date)),
       };
     });
     // Employees with nothing to report would only pad the table.
@@ -569,9 +588,15 @@ function AdvanceExpenseSummary() {
         </>
       ) },
     { key: 'given', header: 'Advances given', align: 'right',
-      cell: (r) => formatCurrency(r.given) },
+      cell: (r) => (
+        <AmountToggle row={r} kind="advances" amount={r.given}
+          count={r.advances.length} open={open} setOpen={setOpen} />
+      ) },
     { key: 'acc', header: 'Expenses accounted', align: 'right',
-      cell: (r) => formatCurrency(r.accounted) },
+      cell: (r) => (
+        <AmountToggle row={r} kind="expenses" amount={r.accounted}
+          count={r.expenses.length} open={open} setOpen={setOpen} />
+      ) },
     { key: 'out', header: 'Outstanding', align: 'right',
       cell: (r) => <strong>{formatCurrency(r.outstanding)}</strong> },
     { key: 'pend', header: 'Pending claims', align: 'right',
@@ -590,6 +615,12 @@ function AdvanceExpenseSummary() {
         columns={columns}
         rows={rows}
         rowKey={(r) => r.employee.id}
+        rowClassName={(r) => (open?.employeeId === r.employee.id ? 'is-expanded' : '')}
+        expanded={(r) => (open && open.employeeId === r.employee.id
+          ? <LedgerBreakdown
+              kind={open.kind}
+              rows={open.kind === 'advances' ? r.advances : r.expenses} />
+          : null)}
         empty="No company advances or accounted expenses recorded yet."
         footer={rows.length > 0 ? (
           <tr>
@@ -610,6 +641,87 @@ function AdvanceExpenseSummary() {
         ) : undefined}
       />
     </Card>
+  );
+}
+
+/**
+ * An amount in the summary that opens its own breakdown.
+ *
+ * Renders as plain text — identical to before — when there is nothing behind
+ * it, so a zero never offers a panel that would open empty. The figure itself
+ * is unchanged and unmoved; only a hover underline and a chevron mark it as
+ * interactive, which keeps the table quiet until the pointer is on it.
+ */
+function AmountToggle(
+  { row, kind, amount, count, open, setOpen }: {
+    row: SummaryRow; kind: 'advances' | 'expenses';
+    amount: number; count: number;
+    open: OpenCell; setOpen: (v: OpenCell) => void;
+  },
+) {
+  if (count === 0) return <>{formatCurrency(amount)}</>;
+  const isOpen = open?.employeeId === row.employee.id && open.kind === kind;
+  const label = kind === 'advances' ? 'advances given' : 'expenses accounted';
+
+  return (
+    <button
+      type="button"
+      className={`amount-toggle ${isOpen ? 'is-open' : ''}`}
+      aria-expanded={isOpen}
+      aria-label={`${isOpen ? 'Hide' : 'Show'} ${count} ${label} for `
+        + `${row.employee.first_name} ${row.employee.last_name}`}
+      onClick={() => setOpen(isOpen ? null : { employeeId: row.employee.id, kind })}
+    >
+      {formatCurrency(amount)}
+      <span className="amount-caret" aria-hidden="true">{isOpen ? '▴' : '▾'}</span>
+    </button>
+  );
+}
+
+/**
+ * The transactions behind one amount. Date and amount only, with the stored
+ * description appended inline where there is one — most expense rows have
+ * none, and a half-empty column would read as missing data rather than as
+ * absent detail.
+ */
+function LedgerBreakdown(
+  { kind, rows }: { kind: 'advances' | 'expenses'; rows: LedgerRow[] },
+) {
+  // No total line: the figure that was clicked to open this panel IS the
+  // total, and repeating it directly beneath invites the reader to check one
+  // against the other for no reason.
+  return (
+    <div className="breakdown">
+      <div className="breakdown-head">
+        {kind === 'advances' ? 'Advances given' : 'Expenses accounted'}
+        <span className="muted"> · {rows.length} entr{rows.length === 1 ? 'y' : 'ies'}</span>
+      </div>
+      <ul className="breakdown-list">
+        {rows.map((l) => {
+          const note = l.description?.trim() ?? '';
+          /*
+           * `reference` means different things per row type in the ledger view:
+           * the payment mode for an advance, the bill number for an expense.
+           * So it is never shown as a bare note — an unlabelled "cash" or "1"
+           * reads as a description. Only the bill number earns a place, and
+           * only with its label.
+           */
+          const bill = l.txn_type === 'expense' ? l.reference?.trim() ?? '' : '';
+          return (
+            <li key={`${l.txn_type}-${l.txn_id}`}>
+              <span className="breakdown-when">
+                {formatDate(l.txn_date)}
+                {note && <span className="muted"> · {note}</span>}
+                {bill && <span className="muted"> · Bill {bill}</span>}
+              </span>
+              <strong className="breakdown-amt">
+                {formatCurrency(kind === 'advances' ? l.debit : l.credit)}
+              </strong>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
