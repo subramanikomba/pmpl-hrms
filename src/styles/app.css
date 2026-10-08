@@ -655,23 +655,31 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 /* ── Expandable amount + its breakdown panel ────────────────────
    The figure must not move or change weight when it becomes a button, or the
    numeric column shifts; only the hover affordance is new. */
-.amount-toggle { appearance: none; background: none; border: 0; padding: 0;
+/*
+ * A dashed underline marks the figure as expandable at rest — the long-standing
+ * "there is more behind this" convention. It also distinguishes the amounts
+ * that open a breakdown from the zeroes that do not, so the pattern explains
+ * itself down the column without any instruction text.
+ *
+ * Deliberately NOT a colour change at rest: tinting these would pull the eye
+ * away from Outstanding, which is the figure this screen is actually about.
+ */
+.amount-toggle { appearance: none; background: none; padding: 0 0 1px;
+  border: 0; border-bottom: 1px dashed var(--field-line-strong);
   font: inherit; color: inherit; cursor: pointer; text-align: right;
   display: inline-flex; align-items: baseline; gap: 5px;
-  transition: color .12s; }
-/* Colour carries the hover, not a hairline underline: --line on white is too
-   faint to register, which is why the first attempt looked like no hover at
-   all. --brand is 4.57:1 on white, so the change is unmistakable. */
-.amount-toggle:hover { color: var(--brand); text-decoration: underline;
-  text-decoration-color: currentColor; text-underline-offset: 3px; }
+  transition: color .12s, border-color .12s; }
+/* Hover and open promote the same underline to solid brand rather than adding
+   a second line, so the figure never carries two rules at once. */
+.amount-toggle:hover,
+.amount-toggle.is-open { color: var(--brand);
+  border-bottom-style: solid; border-bottom-color: var(--brand); }
+.amount-toggle.is-open { font-weight: 600; }
 .amount-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px;
   border-radius: 3px; }
-/* Visible at rest — muted, but present, so the figure is discoverably
-   expandable without having to hover to find out. */
-.amount-caret { font-size: 9px; color: var(--muted); opacity: .5;
+.amount-caret { font-size: 9px; color: var(--muted); opacity: .55;
   transition: opacity .12s, color .12s; }
-.amount-toggle:hover .amount-caret { opacity: 1; color: var(--brand); }
-.amount-toggle.is-open { color: var(--brand); font-weight: 600; }
+.amount-toggle:hover .amount-caret,
 .amount-toggle.is-open .amount-caret { opacity: 1; color: var(--brand); }
 
 /* The open row and its panel share one tint, so the panel plainly belongs to
