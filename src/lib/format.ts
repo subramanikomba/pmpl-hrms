@@ -71,3 +71,22 @@ export function amountInWords(n: number): string {
   if (paise > 0) out += ' and ' + convert(paise).trim() + ' Paise';
   return out + ' Only';
 }
+
+/**
+ * Day of the month with its ordinal suffix: 1 -> "1st", 10 -> "10th".
+ *
+ * The teens are the exception that catches naive implementations: 11, 12 and 13
+ * take "th" even though 1, 2 and 3 take "st", "nd" and "rd".
+ */
+export function ordinalDay(day: number): string {
+  if (!Number.isFinite(day)) return String(day);
+  const n = Math.trunc(day);
+  const teen = Math.abs(n) % 100;
+  if (teen >= 11 && teen <= 13) return `${n}th`;
+  switch (Math.abs(n) % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}

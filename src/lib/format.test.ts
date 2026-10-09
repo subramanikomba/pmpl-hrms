@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { amountInWords, monthInputValue, parseMonthInput } from './format';
+import { amountInWords, monthInputValue, ordinalDay, parseMonthInput } from './format';
 
 describe('amountInWords', () => {
   it('handles zero', () => {
@@ -32,5 +32,26 @@ describe('month input helpers', () => {
   });
   it('rejects malformed input', () => {
     expect(parseMonthInput('nonsense')).toBeNull();
+  });
+});
+
+describe('ordinalDay', () => {
+  it('uses st, nd, rd for 1, 2, 3', () => {
+    expect(ordinalDay(1)).toBe('1st');
+    expect(ordinalDay(2)).toBe('2nd');
+    expect(ordinalDay(3)).toBe('3rd');
+  });
+  it('uses th for the teens, which are the trap', () => {
+    expect(ordinalDay(11)).toBe('11th');
+    expect(ordinalDay(12)).toBe('12th');
+    expect(ordinalDay(13)).toBe('13th');
+  });
+  it('uses th for everything else, and st/nd/rd again from 21', () => {
+    expect(ordinalDay(10)).toBe('10th');
+    expect(ordinalDay(21)).toBe('21st');
+    expect(ordinalDay(22)).toBe('22nd');
+    expect(ordinalDay(23)).toBe('23rd');
+    expect(ordinalDay(28)).toBe('28th');
+    expect(ordinalDay(31)).toBe('31st');
   });
 });

@@ -11,7 +11,8 @@ import {
   computePaidDays, earliestLeaveDate, isoDate, monthStart,
   LEAVE_BACKDATE_CUTOFF_DAY,
 } from '@/lib/payroll';
-import { formatCurrency, formatDate, formatMonth } from '@/lib/format';
+import { formatCurrency, formatDate, formatMonth, ordinalDay } from '@/lib/format';
+import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Card, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -78,6 +79,9 @@ export function EmployeeAttendancePage() {
   const outstandingAdvance = ledger.length > 0
     ? (ledger[ledger.length - 1]?.running_balance ?? 0)
     : 0;
+  // Only to get the singular right: "a company advance" reads as a mistake
+  // when there is one, and the line is meant to be taken seriously.
+  const advanceCount = ledger.filter((l) => l.txn_type === 'advance').length;
 
   const pendingLeaves = leaves.filter((l) => l.status === 'pending');
   const pendingExpenses = expenses.filter((e) => e.status === 'pending');
@@ -170,9 +174,23 @@ export function EmployeeAttendancePage() {
         </div>
       </Card>
 
+      {/*
+        * Addressed to the employee, not written as a ledger label: "you hold"
+        * names who is responsible, and the second line names the one action
+        * that discharges it. "Hold" is deliberate — an advance is company cash
+        * in the employee's custody, not a debt, so nothing here says "owe".
+        */}
       {outstandingAdvance > 0 && (
         <Card className="callout-warn">
-          Outstanding company advance: <strong>{formatCurrency(outstandingAdvance)}</strong>
+          <p>
+            You currently hold <strong>{formatCurrency(outstandingAdvance)}</strong>
+            {' '}in {advanceCount === 1 ? 'a company advance' : 'company advances'}.
+          </p>
+          <p className="advance-action">
+            Submit your bills to account for it before payroll on the{' '}
+            {ordinalDay(q.data?.settings.salary_payment_day ?? 10)}.
+            <Link to="/expenses">Submit a bill →</Link>
+          </p>
         </Card>
       )}
 
