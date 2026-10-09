@@ -8,7 +8,7 @@ import {
 } from '@/lib/api';
 import { AttendanceMonthSection } from './AttendanceMonthSection';
 import {
-  computePaidDays, earliestLeaveDate, isoDate, monthStart,
+  computePaidDays, earliestLeaveDate, isoDate, monthStart, unexplainedAbsences,
   LEAVE_BACKDATE_CUTOFF_DAY,
 } from '@/lib/payroll';
 import { formatCurrency, formatDate, formatMonth, ordinalDay } from '@/lib/format';
@@ -38,7 +38,17 @@ export function EmployeeAttendancePage() {
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [records, holidays, leaves, ledger, expenses, settings, requests] =
+    /*
+     * Last month's attendance is fetched ONLY while leave can still be applied
+     * for it — up to LEAVE_BACKDATE_CUTOFF_DAY. After that the employee cannot
+     * act on it, so naming the absences would be a reminder of a pay cut they
+     * can no longer prevent, and the extra query would buy nothing.
+     */
+    const prevMonth = earliestLeaveDate(today) < monthStart(today)
+      ? new Date(today.getFullYear(), today.getMonth() - 1, 1)
+      : null;
+    const [records, holidays, leaves, ledger, expenses, settings, requests,
+      prevRecords] =
       await Promise.all([
         attendanceApi.listForMonth(month, employeeId),
         holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
@@ -47,8 +57,12 @@ export function EmployeeAttendancePage() {
         expenseApi.listFor(employeeId),
         settingsApi.get(),
         attendanceChangeApi.listFor(employeeId),
+        prevMonth
+          ? attendanceApi.listForMonth(prevMonth, employeeId)
+          : Promise.resolve([]),
       ]);
-    return { records, holidays, leaves, ledger, expenses, settings, requests };
+    return { records, holidays, leaves, ledger, expenses, settings, requests,
+      prevRecords, prevMonth };
   }, [employeeId]);
 
   if (!employee) return null;
@@ -57,7 +71,7 @@ export function EmployeeAttendancePage() {
 
   const {
     records = [], holidays = [], leaves = [], ledger = [], expenses = [],
-    requests = [],
+    requests = [], prevRecords = [], prevMonth = null,
   } = q.data ?? {};
   const holidayDates = new Set(holidays.map((h) => h.holiday_date));
   const breakdown = computePaidDays({ month, records, holidayDates, upTo: today,
@@ -82,6 +96,17 @@ export function EmployeeAttendancePage() {
   // Only to get the singular right: "a company advance" reads as a mistake
   // when there is one, and the line is meant to be taken seriously.
   const advanceCount = ledger.filter((l) => l.txn_type === 'advance').length;
+
+  /*
+   * Absent days the employee can still convert to leave. Last month's are the
+   * ones with money attached — that is the payroll about to run — so they are
+   * named separately and only while the window is open.
+   */
+  const absentThisMonth = unexplainedAbsences(records, leaves);
+  const absentPrevMonth = unexplainedAbsences(prevRecords, leaves);
+  const payDay = ordinalDay(q.data?.settings.salary_payment_day ?? 10);
+  const showNotice = outstandingAdvance > 0
+    || absentPrevMonth.length > 0 || absentThisMonth.length > 0;
 
   const pendingLeaves = leaves.filter((l) => l.status === 'pending');
   const pendingExpenses = expenses.filter((e) => e.status === 'pending');
@@ -175,26 +200,50 @@ export function EmployeeAttendancePage() {
       </Card>
 
       {/*
-        * Addressed to the employee, not written as a ledger label: "you hold"
-        * names who is responsible, and the second line names the one action
-        * that discharges it. "Hold" is deliberate — an advance is company cash
-        * in the employee's custody, not a debt, so nothing here says "owe".
+        * One notice for everything to settle before payroll, rather than a
+        * stack of separate warnings. Each line appears only when it applies and
+        * carries its own action; the card disappears when nothing does.
+        *
+        * Addressed to the employee throughout: "you hold", "you have" name who
+        * is responsible. "Hold" is deliberate — an advance is company cash in
+        * their custody, not a debt, so nothing here says "owe".
         */}
-      {outstandingAdvance > 0 && (
+      {showNotice && (
         <Card className="callout-warn">
-          <p>
-            You currently hold <strong>{formatCurrency(outstandingAdvance)}</strong>
-            {' '}in {advanceCount === 1 ? 'a company advance' : 'company advances'}.
-          </p>
-          <p className="advance-action">
-            Submit your bills to account for it before payroll on the{' '}
-            {ordinalDay(q.data?.settings.salary_payment_day ?? 10)}.
-            <Link to="/expenses">Submit a bill →</Link>
-          </p>
+          <p className="notice-head">Before payroll on the {payDay}</p>
+
+          {outstandingAdvance > 0 && (
+            <p className="notice-line">
+              You currently hold <strong>{formatCurrency(outstandingAdvance)}</strong>
+              {' '}in {advanceCount === 1 ? 'a company advance' : 'company advances'}.
+              {' '}Submit your bills to account for it.
+              <Link to="/expenses">Submit a bill →</Link>
+            </p>
+          )}
+
+          {/* Last month first: that is the payroll about to run. */}
+          {absentPrevMonth.length > 0 && prevMonth && (
+            <p className="notice-line">
+              You have <strong>{absentPrevMonth.length} day
+              {absentPrevMonth.length === 1 ? '' : 's'}</strong> marked Absent in
+              {' '}{formatMonth(prevMonth)}. If any were leave, apply by the
+              {' '}{ordinalDay(LEAVE_BACKDATE_CUTOFF_DAY)} to avoid a pay cut.
+              <a href="#apply-leave">Apply for leave →</a>
+            </p>
+          )}
+
+          {absentThisMonth.length > 0 && (
+            <p className="notice-line">
+              You have <strong>{absentThisMonth.length} day
+              {absentThisMonth.length === 1 ? '' : 's'}</strong> marked Absent in
+              {' '}{formatMonth(month)}. If any were leave, apply to avoid a pay cut.
+              <a href="#apply-leave">Apply for leave →</a>
+            </p>
+          )}
         </Card>
       )}
 
-      <Card title="Apply for leave">
+      <Card title="Apply for leave" id="apply-leave">
         <p className="muted small">
           You can apply for a future date, or for a past day you were away — for
           example a day taken off in lieu of working a Sunday. Admin approves it,

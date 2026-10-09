@@ -705,10 +705,14 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 /* The last entry needs no rule beneath it — the panel's own border closes it. */
 .breakdown-list li:last-child { border-bottom: 0; padding-bottom: 0; }
 
-/* Second line of the outstanding-advance notice: the instruction and the link
-   that carries it out, kept quieter than the amount above them. */
-.advance-action { margin-top: 4px; font-size: 12.5px; opacity: .9; }
-.advance-action a { margin-left: 8px; font-weight: 600; white-space: nowrap;
+/* Pre-payroll notice: a heading naming the deadline, then one line per thing
+   still to settle, each ending in the link that settles it. */
+.notice-head { font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; opacity: .8; margin-bottom: 6px; }
+.notice-line { margin-top: 5px; }
+.notice-line + .notice-line { padding-top: 5px;
+  border-top: 1px solid rgba(138,109,59,.18); }
+.notice-line a { margin-left: 8px; font-weight: 600; white-space: nowrap;
   color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 /* A note belonging to the card above it — separated by a hairline so it reads

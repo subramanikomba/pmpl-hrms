@@ -5,7 +5,8 @@
  * decide people's salaries can be unit-tested in isolation.
  */
 import type {
-  AttendanceRecord, AttendanceStatus, CompanySettings, SalaryStructure,
+  AttendanceRecord, AttendanceStatus, CompanySettings, LeaveRequest,
+  SalaryStructure,
 } from '@/types/db';
 
 /** Round to 2 decimals, avoiding binary float drift (e.g. 1.005 -> 1.01). */
@@ -484,4 +485,27 @@ export function structureIsLocked(
   return payrollRows.some(
     (p) => p.status !== 'draft' && p.payroll_month.slice(0, 7) >= effectiveMonth,
   );
+}
+
+/**
+ * Days marked Absent that the employee could still turn into leave.
+ *
+ * Excludes any date already covered by a leave request — pending or approved —
+ * because reminding someone about a day they have already applied for reads as
+ * the system not noticing, which is worse than saying nothing.
+ *
+ * Only Absent is counted: unpaid_leave is already an authorised decision, and
+ * an unmarked day is a different problem with a different fix.
+ */
+export function unexplainedAbsences(
+  records: Pick<AttendanceRecord, 'date' | 'status'>[],
+  leaves: Pick<LeaveRequest, 'from_date' | 'to_date' | 'status'>[],
+): string[] {
+  const covered = leaves.filter((l) => l.status !== 'rejected');
+  return records
+    .filter((r) => r.status === 'absent')
+    .filter((r) => !covered.some(
+      (l) => r.date >= l.from_date && r.date <= l.to_date))
+    .map((r) => r.date)
+    .sort();
 }

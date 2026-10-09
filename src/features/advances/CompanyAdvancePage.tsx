@@ -25,7 +25,7 @@ import { PdfViewerModal } from '@/features/payroll/PdfViewerModal';
 import {
   generateUtilisationPdf, generateUtilisationPreview, type UtilisationData,
 } from '@/features/vouchers/utilisationDocument';
-import { EyeIcon } from '@/components/ui/Icons';
+import { EyeIcon, TrashIcon } from '@/components/ui/Icons';
 import type { CompanyExpense, Employee, LedgerRow } from '@/types/db';
 
 type Tab = 'ledger' | 'summary' | 'reimbursements';
@@ -146,14 +146,25 @@ export function CompanyAdvancePage() {
    */
   const unreconciled = useQuery(
     async () => {
-      if (!employeeId) return [];
+      const empty = {
+        owed: [] as CompanyExpense[], usedAdvanceIds: new Set<string>(),
+      };
+      if (!employeeId) return empty;
       const [claims, status] = await Promise.all([
         expenseApi.listAll({ employeeId, status: 'approved' }),
         reimbursementApi.claimStatus({ employeeId }),
       ]);
       const owed = new Set(
         status.filter((c) => c.is_reimbursable).map((c) => c.expense_id));
-      return claims.filter((r) => owed.has(r.id));
+      /*
+       * Which advances still have a claim accounted against them. Taken from
+       * the claims already fetched here rather than a query of its own — it
+       * decides whether an advance may be deleted, and an advance with
+       * anything accounted against it may not.
+       */
+      const usedAdvanceIds = new Set(
+        claims.map((r) => r.accounted_advance_id).filter(Boolean) as string[]);
+      return { owed: claims.filter((r) => owed.has(r.id)), usedAdvanceIds };
     },
     [employeeId],
   );
@@ -179,7 +190,8 @@ export function CompanyAdvancePage() {
    * company has not agreed it owes anything, so counting earlier would blame
    * settlement for a slow approval.
    */
-  const awaiting = unreconciled.data ?? [];
+  const awaiting = unreconciled.data?.owed ?? [];
+  const usedAdvanceIds = unreconciled.data?.usedAdvanceIds ?? new Set<string>();
   const awaitingTotal = awaiting.reduce((t, x) => t + Number(x.amount), 0);
   const oldestWaitDays = awaiting.reduce((max, x) => {
     const from = x.reviewed_at ?? x.expense_date;
@@ -202,6 +214,43 @@ export function CompanyAdvancePage() {
       ledger.reload(); unreconciled.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not un-account the claim');
+    }
+  }
+
+  /**
+   * Delete an advance recorded in error.
+   *
+   * Offered only on advances with nothing accounted against them, so the
+   * everyday path never meets a refusal. The RPC checks the same condition
+   * server-side for the case where this page has gone stale, and its message
+   * is shown to the Admin as-is.
+   *
+   * A reason is asked for rather than optional: the ledger will show no trace
+   * once the row is gone, and the audit entry is the only place the why can
+   * live.
+   */
+  async function deleteAdvance(row: LedgerRow) {
+    const who = selectedEmployee
+      ? `${selectedEmployee.first_name} ${selectedEmployee.last_name}`
+      : 'this employee';
+    const reason = window.prompt(
+      `Delete this advance?\n\n`
+      + `${who} · ${formatDate(row.txn_date)} · ${formatCurrency(row.debit)}`
+      + `${row.reference ? ` · ${row.reference}` : ''}\n\n`
+      + 'This cannot be undone and the advance will disappear from the ledger '
+      + 'and every summary. Enter the reason for deleting it:',
+    );
+    if (reason === null) return;                     // Cancel
+    if (!reason.trim()) {
+      toast.error('A reason is required to delete an advance.');
+      return;
+    }
+    try {
+      await advanceApi.remove(row.txn_id, reason.trim());
+      toast.success('Advance deleted. The ledger has been updated.');
+      ledger.reload(); unreconciled.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not delete the advance');
     }
   }
 
@@ -275,10 +324,21 @@ export function CompanyAdvancePage() {
         : (
           // Advances only. Accounting an expense against an advance moves no
           // money, so it has no payment voucher.
-          <Button size="sm" variant="ghost" disabled={busyVoucher === r.txn_id}
-            title="View payment voucher"
-            aria-label="View payment voucher"
-            onClick={() => void advanceVoucher(r)}><EyeIcon /></Button>
+          <span className="row-actions">
+            <Button size="sm" variant="ghost" disabled={busyVoucher === r.txn_id}
+              title="View payment voucher"
+              aria-label="View payment voucher"
+              onClick={() => void advanceVoucher(r)}><EyeIcon /></Button>
+            {/* Shown only once nothing is accounted against this advance, so
+                the correction sequences itself: un-account the claims first,
+                and only then can the advance be removed. */}
+            {!usedAdvanceIds.has(r.txn_id) && (
+              <Button size="sm" variant="ghost"
+                title="Delete this advance"
+                aria-label="Delete this advance"
+                onClick={() => void deleteAdvance(r)}><TrashIcon /></Button>
+            )}
+          </span>
         ) },
   ];
 
@@ -395,7 +455,7 @@ export function CompanyAdvancePage() {
             />
           </div>
 
-          {(unreconciled.data ?? []).length > 0 && (
+          {awaiting.length > 0 && (
             <Card title="Approved, not yet settled" className="mid">
               <p className="muted small">
                 These approved claims do not affect the advance balance yet.
@@ -415,7 +475,7 @@ export function CompanyAdvancePage() {
                         onClick={() => setAccounting(r)}>Account</Button>
                     ) },
                 ]}
-                rows={unreconciled.data ?? []}
+                rows={awaiting}
                 rowKey={(r) => r.id}
               />
             </Card>

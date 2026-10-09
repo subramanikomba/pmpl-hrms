@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeAllowanceAmount, computePaidDays, computePayroll, daysInMonth, isPayrollMonthLocked,
   isoDate, professionalTaxFor, round2, structureForMonth, employeeMayMark,
-  employeeMayApplyLeave, earliestLeaveDate,
+  employeeMayApplyLeave, earliestLeaveDate, unexplainedAbsences,
   needsPresentApproval, deriveBonusCounts, qualifiesForAttendanceBonus,
   findUnmarkedAttendance, capRecovery, structureIsLocked,
 } from './payroll';
@@ -578,5 +578,46 @@ describe('earliestLeaveDate', () => {
   });
   it('is the start of the current month from the 11th', () => {
     expect(isoDate(earliestLeaveDate(new Date(2026, 9, 11)))).toBe('2026-10-01');
+  });
+});
+
+describe('unexplainedAbsences', () => {
+  const abs = (date: string) => ({ date, status: 'absent' as const });
+  const leave = (from_date: string, to_date: string, status: 'pending'|'approved'|'rejected') =>
+    ({ from_date, to_date, status });
+
+  it('returns absent days with no leave request against them', () => {
+    expect(unexplainedAbsences([abs('2026-10-05'), abs('2026-10-12')], []))
+      .toEqual(['2026-10-05', '2026-10-12']);
+  });
+  it('ignores days already covered by an approved request', () => {
+    expect(unexplainedAbsences(
+      [abs('2026-10-05')], [leave('2026-10-05', '2026-10-05', 'approved')])).toEqual([]);
+  });
+  it('ignores days covered by a request still pending', () => {
+    // Already applied for: reminding again reads as the system not noticing.
+    expect(unexplainedAbsences(
+      [abs('2026-10-05')], [leave('2026-10-05', '2026-10-05', 'pending')])).toEqual([]);
+  });
+  it('still counts a day whose request was rejected', () => {
+    expect(unexplainedAbsences(
+      [abs('2026-10-05')], [leave('2026-10-05', '2026-10-05', 'rejected')]))
+      .toEqual(['2026-10-05']);
+  });
+  it('covers a date inside a multi-day request', () => {
+    expect(unexplainedAbsences(
+      [abs('2026-10-06')], [leave('2026-10-05', '2026-10-08', 'approved')])).toEqual([]);
+  });
+  it('counts only absent — not unpaid leave or present', () => {
+    const recs = [
+      abs('2026-10-05'),
+      { date: '2026-10-06', status: 'unpaid_leave' as const },
+      { date: '2026-10-07', status: 'present' as const },
+    ];
+    expect(unexplainedAbsences(recs, [])).toEqual(['2026-10-05']);
+  });
+  it('returns them in date order whatever order they arrive in', () => {
+    expect(unexplainedAbsences([abs('2026-10-12'), abs('2026-10-05')], []))
+      .toEqual(['2026-10-05', '2026-10-12']);
   });
 });

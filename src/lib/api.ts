@@ -757,6 +757,23 @@ export const advanceApi = {
     if (error || !data) throw new Error(error?.message ?? 'Could not record the advance');
     return data as CompanyAdvance;
   },
+
+  /**
+   * Remove an advance recorded in error.
+   *
+   * Goes through the delete_company_advance RPC rather than deleting directly,
+   * so the audit row and the delete happen in one transaction — a deletion
+   * without its audit entry is then impossible. The function also refuses when
+   * claims are still accounted against the advance, and its message is written
+   * to be shown to the Admin as-is.
+   */
+  async remove(advanceId: string, reason: string): Promise<void> {
+    const { error } = await supabase.rpc('delete_company_advance', {
+      p_advance_id: advanceId,
+      p_reason: reason,
+    });
+    if (error) throw new Error(error.message);
+  },
 };
 
 /* ── Salary advance (kept separate from company advance, per spec) ── */
