@@ -540,6 +540,21 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 .link-btn:hover { color: var(--brand-dark); }
 .row-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .paid-ref { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+/* Destructive row action. Borderless and smaller than the buttons beside it,
+   faint at rest so it never invites a stray click, full strength only once it
+   is deliberately aimed at. */
+.icon-act-danger { appearance: none; background: none; border: 0; cursor: pointer;
+  display: inline-flex; align-items: center; line-height: 0;
+  padding: 5px; border-radius: 6px; color: var(--danger); opacity: .45;
+  transition: background .12s ease, opacity .12s ease; }
+.icon-act-danger svg { width: 11px; height: 11px; }
+.icon-act-danger:hover, .icon-act-danger:focus-visible {
+  opacity: 1; background: var(--danger-bg); }
+/* Same footprint as .icon-act-danger (11px glyph + 5px padding each side),
+   so the row's other actions keep their column where no delete is offered. */
+.icon-act-slot { display: inline-block; width: 21px; }
+/* Extra travel between a destructive icon and the safe action beside it. */
+.row-actions-wide { gap: 18px; }
 
 /* ── In-app document viewer ─────────────────────────────────── */
 .doc-viewer { width: 100%; height: min(72vh, 780px); background: var(--bg);
@@ -743,8 +758,12 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
   font-weight: 600; }
 
 /* Direction of money in the advance ledger. */
-.amt-out { color: var(--ok, #2f6b4f); font-weight: 600; }
-.amt-in  { color: var(--danger, #a13d2f); font-weight: 600; }
+.amt-out { color: var(--ok, #2f6b4f); font-weight: 600; white-space: nowrap; }
+.amt-in  { color: var(--danger, #a13d2f); font-weight: 600; white-space: nowrap; }
+/* Table cells: hold short values on one line, and let the one free-text
+   column wrap within a cap so it cannot crowd out the figures. */
+.nowrap { white-space: nowrap; }
+.cell-wrap { display: inline-block; max-width: 320px; }
 
 /* Sub-line under a stat figure. */
 .stat-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
@@ -784,3 +803,8 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
   display: flex; align-items: center; justify-content: center;
   font-size: 15px; font-weight: 600; letter-spacing: .02em; }
 .ledger-name { font-size: 18px; font-weight: 650; margin: 0 0 2px; }
+
+/* The reason Admin gave when rejecting a claim, under the status badge on the
+   employee's own list. Stored all along; it simply was never displayed. */
+.claim-note-shown { margin-top: 4px; font-size: 12px; line-height: 1.45;
+  color: var(--warn); max-width: 260px; }

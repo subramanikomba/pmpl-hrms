@@ -293,8 +293,16 @@ export function CompanyAdvancePage() {
     }
   }
 
+  /*
+   * Description is the only free-text column, so it is the only one allowed
+   * to wrap. Everything else is a date, an amount or a short reference whose
+   * meaning suffers when it breaks across lines, so those are held on one
+   * line and Description takes whatever width is left, capped so a long entry
+   * cannot squeeze the figures.
+   */
   const columns: Column<LedgerRow>[] = [
-    { key: 'date', header: 'Date', cell: (r) => formatDate(r.txn_date) },
+    { key: 'date', header: 'Date', width: '104px',
+      cell: (r) => <span className="nowrap">{formatDate(r.txn_date)}</span> },
     // Badge colour matches the amount colour in the same row: one colour
     // language for direction, rather than two unrelated ones.
     { key: 'type', header: 'Type',
@@ -311,20 +319,22 @@ export function CompanyAdvancePage() {
       cell: (r) => r.credit > 0
         ? <span className="amt-in">−{formatCurrency(r.credit)}</span>
         : <span className="muted">—</span> },
-    { key: 'ref', header: 'Reference', cell: (r) => r.reference || '—' },
-    { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
+    { key: 'ref', header: 'Reference',
+      cell: (r) => <span className="nowrap">{r.reference || '—'}</span> },
+    { key: 'desc', header: 'Description',
+      cell: (r) => <span className="cell-wrap">{r.description || '—'}</span> },
     { key: 'bal', header: 'Balance', align: 'right',
-      cell: (r) => <strong>{formatCurrency(r.running_balance)}</strong> },
+      cell: (r) => <strong className="nowrap">{formatCurrency(r.running_balance)}</strong> },
     { key: 'act', header: '', align: 'right',
       cell: (r) => r.txn_type === 'expense'
         ? (
-          <Button size="sm" variant="ghost"
+          <Button size="sm" variant="ghost" className="nowrap"
             onClick={() => void unaccount(r)}>Un-account</Button>
         )
         : (
           // Advances only. Accounting an expense against an advance moves no
           // money, so it has no payment voucher.
-          <span className="row-actions">
+          <span className="row-actions row-actions-wide">
             <Button size="sm" variant="ghost" disabled={busyVoucher === r.txn_id}
               title="View payment voucher"
               aria-label="View payment voucher"
@@ -332,11 +342,17 @@ export function CompanyAdvancePage() {
             {/* Shown only once nothing is accounted against this advance, so
                 the correction sequences itself: un-account the claims first,
                 and only then can the advance be removed. */}
-            {!usedAdvanceIds.has(r.txn_id) && (
-              <Button size="sm" variant="ghost"
+            {!usedAdvanceIds.has(r.txn_id) ? (
+              // Faded red at rest so it is findable without competing with the
+              // figures, full strength only once the pointer is on it.
+              <button type="button" className="icon-act-danger"
                 title="Delete this advance"
                 aria-label="Delete this advance"
-                onClick={() => void deleteAdvance(r)}><TrashIcon /></Button>
+                onClick={() => void deleteAdvance(r)}><TrashIcon /></button>
+            ) : (
+              // Holds the slot open so the eye stays in one column down the
+              // table instead of sliding right on rows that offer no delete.
+              <span className="icon-act-slot" aria-hidden="true" />
             )}
           </span>
         ) },

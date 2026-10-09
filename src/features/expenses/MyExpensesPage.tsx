@@ -190,7 +190,22 @@ export function MyExpensesPage() {
     { key: 'amt', header: 'Amount', align: 'right', cell: (r) => formatCurrency(r.amount) },
     { key: 'bill', header: 'Bill no.', cell: (r) => r.bill_number || '—' },
     { key: 'desc', header: 'Description', cell: (r) => r.description || '—' },
-    { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
+    /*
+     * The status, and underneath it the reason Admin gave. review_note is
+     * written by the reject path and was displayed nowhere, so until now a
+     * rejected claim told the employee nothing about why. Rendered for any
+     * status that carries a note rather than only 'rejected', so a note left
+     * on a claim by any other route still reaches the employee.
+     */
+    { key: 'status', header: 'Status',
+      cell: (r) => (
+        <>
+          <StatusBadge status={r.status} />
+          {r.review_note && (
+            <div className="claim-note-shown">Admin: {r.review_note}</div>
+          )}
+        </>
+      ) },
     // Settlement is shown only for approved claims, and only from the derived
     // payment records — never inferred from approval alone.
     { key: 'settle', header: 'Reimbursement',
