@@ -217,28 +217,51 @@ export function PayrollPage() {
     return detail.find((l) => l.rule_key === ruleKey) ?? null;
   }
 
+  /**
+   * Payment is the point of no return, for allowances as for everything else.
+   *
+   * Until then a processed row stays correctable: the counts are saved rather
+   * than recomputed, so nothing changes behind the Admin's back, but a genuine
+   * mistake can still be put right. Locking on `status !== 'draft'` instead
+   * made a wrong Count permanent the moment it was processed — not even Reopen
+   * released it, because Reopen leaves the status alone.
+   */
+  function allowancesLocked(emp: Employee): boolean {
+    const row = payrollByEmployee.get(emp.id);
+    return !!row && (row.status === 'paid' || !!row.payment_date);
+  }
+
   /** Allowance lines from the configured rules and the Admin's quantities. */
   function allowanceLinesFor(emp: Employee, basic: number): AllowanceLine[] {
     const e = editsFor(emp);
     const system = systemCountsFor(emp);
+    const locked = allowancesLocked(emp);
     return activeRules.map((rule) => {
-      // A processed row reports exactly what was saved — never recomputed.
+      // A PAID row reports exactly what it was paid on — never recomputed.
       const saved = savedLineFor(emp, rule.rule_key);
-      if (saved) return saved;
+      if (saved && locked) return saved;
 
       const quantity = Number(e.allowanceQty[rule.rule_key] ?? 0) || 0;
-      const systemQuantity = system[rule.rule_key] ?? 0;
+      // A processed row keeps the rate it was processed at, even while its
+      // Count is being corrected: fixing a miscount must not silently re-rate
+      // the month as well. The modal shows "now x%" when settings have moved.
+      const ratePercent = saved
+        ? Number(saved.rate_percent) : Number(rule.rate_percent);
+      // Likewise the system's original derivation is preserved, so the record
+      // still shows what the records said at the time it was processed.
+      const systemQuantity = saved
+        ? Number(saved.system_quantity) : (system[rule.rule_key] ?? 0);
       return {
         rule_key: rule.rule_key,
         description: rule.description,
-        rate_percent: Number(rule.rate_percent),
+        rate_percent: ratePercent,
         quantity,
         // Kept even when equal, so a later reader can tell the saved Count
         // was checked against the records rather than simply typed in.
         system_quantity: systemQuantity,
         override_reason: quantity !== systemQuantity
           ? (e.allowanceReason[rule.rule_key]?.trim() || null) : null,
-        amount: computeAllowanceAmount(basic, Number(rule.rate_percent), quantity),
+        amount: computeAllowanceAmount(basic, ratePercent, quantity),
       };
     });
   }
@@ -446,12 +469,20 @@ export function PayrollPage() {
               });
               setAllowancesFor(null);
             }} dismissOnBackdrop={false}>
-            <p className="muted small">
-              Rates come from Payroll Settings. Each Count is prefilled from
-              this month's records; edit any Count you need to. The Count you
-              save is the one payroll uses. Amount = rate × prorated basic
-              ({formatCurrency(proratedBasic)}) × Count.
-            </p>
+            {allowancesLocked(emp) ? (
+              <p className="callout-warn">
+                This payroll has been paid, so its allowances are locked and
+                show exactly what was paid. Undo the payment on this row first
+                if a correction is genuinely needed.
+              </p>
+            ) : (
+              <p className="muted small">
+                Rates come from Payroll Settings. Each Count is prefilled from
+                this month's records; edit any Count you need to. The Count you
+                save is the one payroll uses. Amount = rate × prorated basic
+                ({formatCurrency(proratedBasic)}) × Count.
+              </p>
+            )}
             <table className="data-table table-compact">
               <thead>
                 <tr>
@@ -463,15 +494,19 @@ export function PayrollPage() {
                 {activeRules.map((rule) => {
                   const saved = savedLineFor(emp, rule.rule_key);
                   const liveRate = Number(rule.rate_percent);
-                  // Processed rows report the rate and amount they were
-                  // processed with; drafts follow current settings.
+                  // A processed row keeps the rate it was processed with; a
+                  // draft follows current settings.
                   const rate = saved ? Number(saved.rate_percent) : liveRate;
-                  const qty = saved
+                  // Paid rows are frozen. Everything else is editable, so the
+                  // Count comes from the edit state — which defaultsFor has
+                  // already seeded from the saved row.
+                  const locked = allowancesLocked(emp);
+                  const qty = locked && saved
                     ? Number(saved.quantity)
                     : Number(ed.allowanceQty[rule.rule_key] ?? 0) || 0;
-                  const amt = saved
+                  const amt = locked && saved
                     ? Number(saved.amount)
-                    : computeAllowanceAmount(proratedBasic, liveRate, qty);
+                    : computeAllowanceAmount(proratedBasic, rate, qty);
                   const settingMoved = !!saved && rate !== liveRate;
                   return (
                     <tr key={rule.rule_key}>
@@ -483,7 +518,7 @@ export function PayrollPage() {
                         )}
                       </td>
                       <td className="num">
-                        {saved ? qty : (
+                        {locked ? qty : (
                           <input className="cell-input" type="number" min="0" step="1"
                             value={ed.allowanceQty[rule.rule_key] ?? ''}
                             placeholder="0"
