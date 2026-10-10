@@ -33,21 +33,26 @@ type Tab = 'ledger' | 'summary' | 'reimbursements';
 export function CompanyAdvancePage() {
   const { employee } = useAuth();
   const toast = useToast();
-  const [employeeId, setEmployeeId] = useState('');
   const [date, setDate] = useState(isoDate(new Date()));
   const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [accounting, setAccounting] = useState<CompanyExpense | null>(null);
-  // A deep link may open a specific tab, e.g. /admin/company-advance?tab=summary
-  // from the dashboard. Falls back to the ledger for any other value.
+  /*
+   * A deep link may open a specific tab, e.g. /admin/company-advance?tab=summary
+   * from the dashboard, and may name an employee, e.g. ?employee=<id> from
+   * Expense Reports. Both are initial state only: once here, the tab strip and
+   * the employee picker own them, so the URL never fights the user's choice.
+   * Any unrecognised value falls back to the ledger with nobody selected.
+   */
   const [params] = useSearchParams();
   const requested = params.get('tab');
   const [tab, setTab] = useState<Tab>(
     requested === 'summary' || requested === 'reimbursements'
       ? requested : 'ledger',
   );
+  const [employeeId, setEmployeeId] = useState(() => params.get('employee') ?? '');
   const [busyVoucher, setBusyVoucher] = useState<string | null>(null);
   const [ledgerFilter, setLedgerFilter] =
     useState<'all' | 'advances' | 'expenses'>('all');
@@ -544,7 +549,7 @@ export function CompanyAdvancePage() {
               ['expenses', `Expenses (${expenseCount})`],
             ] as const).map(([key, label]) => (
               <button key={key} type="button"
-                className={`chip ${ledgerFilter === key ? 'is-active' : ''}`}
+                className={`filter-chip ${ledgerFilter === key ? 'is-active' : ''}`}
                 aria-pressed={ledgerFilter === key}
                 onClick={() => setLedgerFilter(key)}>
                 {label}

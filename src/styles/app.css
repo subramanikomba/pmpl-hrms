@@ -768,12 +768,18 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 /* Sub-line under a stat figure. */
 .stat-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-/* Ledger filter chips. */
-.chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.chip { font-size: 12.5px; padding: 6px 12px; border-radius: 20px;
+/* Interactive chips — a filter the user can toggle. Named apart from the
+   static .chip label above: these two used to share a class, which gave every
+   read-only chip in the app a hand cursor it could not honour. */
+.filter-chip { font-size: 12.5px; padding: 6px 12px; border-radius: 20px;
   border: 1px solid var(--line); color: var(--muted);
-  background: transparent; cursor: pointer; }
-.chip.is-active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  background: transparent; cursor: pointer;
+  transition: border-color .12s ease, color .12s ease, background .12s ease; }
+.filter-chip:hover, .filter-chip:focus-visible {
+  border-color: var(--brand); color: var(--brand); }
+.filter-chip.is-active { background: var(--brand); color: #fff;
+  border-color: var(--brand); }
+.filter-chip.is-active:hover { color: #fff; }
 
 /* Sortable column header. The button inherits the header's colour so the
    row still reads as a header, not as a link. */
@@ -808,3 +814,14 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
    employee's own list. Stored all along; it simply was never displayed. */
 .claim-note-shown { margin-top: 4px; font-size: 12px; line-height: 1.45;
   color: var(--warn); max-width: 260px; }
+
+/* Expense Reports: what to do about the unsettled total, directly under the
+   stat cards. A strip rather than a card — it is a pointer, not a section. */
+.settle-prompt { display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 6px 18px; margin: -4px 0 16px; padding: 10px 14px;
+  background: var(--warn-bg, #FAF2E2); border-radius: 8px;
+  font-size: 13.5px; line-height: 1.5; }
+.settle-prompt strong { font-weight: 600; margin-right: 2px; }
+.settle-prompt a { color: var(--brand); font-weight: 600;
+  text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.settle-prompt a:hover { text-decoration-thickness: 2px; }

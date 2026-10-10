@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@/lib/useQuery';
 import { clientApi, employeesApi, expenseApi, reimbursementApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -340,13 +341,54 @@ export function ExpenseReportsPage() {
                     + 'included in approved'} />
             </div>
 
+            {/*
+              * Where to go next, sitting directly under the figure it refers
+              * to. Both routes are tabs of Advance Ledger, so this is one
+              * destination with two doors rather than two screens.
+              *
+              * "Settled" deliberately, not "pending": these claims are
+              * APPROVED, and the table below uses Pending for claims still
+              * awaiting a decision.
+              */}
+            {awaitingOwed > 0 && (
+              <p className="settle-prompt">
+                <strong>
+                  {awaitingCount} claim{awaitingCount === 1 ? '' : 's'},
+                  {' '}{formatCurrency(awaitingOwed)}, approved but not settled.
+                </strong>
+                {/* The Account button lives on one employee's ledger, so the
+                    filtered employee is carried over when there is one. */}
+                <Link to={`/admin/company-advance${employeeId ? `?employee=${employeeId}` : ''}`}>
+                  Account against an advance →
+                </Link>
+                <Link to="/admin/company-advance?tab=reimbursements">
+                  Record a reimbursement →
+                </Link>
+              </p>
+            )}
+
             {byCategory.size > 0 && (
               <Card title="Approved by category">
+                {/*
+                  * Each chip filters the table to its category — the obvious
+                  * next step after reading the breakdown. Clicking the active
+                  * one clears it, so a chip is never a one-way door, and the
+                  * Category select stays in step because both write the same
+                  * piece of state.
+                  */}
                 <div className="chip-row">
                   {[...byCategory.entries()]
                     .sort((a, b) => b[1] - a[1])
                     .map(([cat, amt]) => (
-                      <span key={cat} className="chip">{cat}: {formatCurrency(amt)}</span>
+                      <button key={cat} type="button"
+                        className={`filter-chip ${category === cat ? 'is-active' : ''}`}
+                        aria-pressed={category === cat}
+                        title={category === cat
+                          ? `Showing ${cat} only — click to clear`
+                          : `Show only ${cat}`}
+                        onClick={() => setCategory(category === cat ? '' : cat)}>
+                        {cat}: {formatCurrency(amt)}
+                      </button>
                     ))}
                 </div>
               </Card>
