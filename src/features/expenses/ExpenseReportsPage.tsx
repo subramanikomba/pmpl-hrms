@@ -361,6 +361,7 @@ export function ExpenseReportsPage() {
                 <Link to={`/admin/company-advance${employeeId ? `?employee=${employeeId}` : ''}`}>
                   Account against an advance →
                 </Link>
+                <span className="settle-or">or</span>
                 <Link to="/admin/company-advance?tab=reimbursements">
                   Record a reimbursement →
                 </Link>

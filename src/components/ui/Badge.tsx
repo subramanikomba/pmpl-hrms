@@ -9,12 +9,15 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   rejected: 'danger', absent: 'danger', inactive: 'danger',
   paid_leave: 'info', unpaid_leave: 'warn', processed: 'info', advance: 'info',
   weekly_off: 'neutral-alt', company_holiday: 'neutral-alt', expense: 'neutral-alt',
+  comp_off: 'info',
 };
 
 const STATUS_LABEL: Record<string, string> = {
   present: 'Present', paid_leave: 'Paid Leave', unpaid_leave: 'Unpaid Leave',
   weekly_off: 'Weekly Off',
   company_holiday: 'Holiday', absent: 'Absent',
+  // A day off taken against a weekly off or holiday the employee worked.
+  comp_off: 'Day Off (worked earlier)',
   pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
   draft: 'Draft', processed: 'Processed', paid: 'Paid',
   active: 'Active', inactive: 'Inactive',

@@ -4,8 +4,9 @@ import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
   attendanceApi, attendanceChangeApi, holidayApi, leaveApi, advanceApi,
-  expenseApi, settingsApi,
+  expenseApi, outdoorVisitApi, settingsApi,
 } from '@/lib/api';
+import { travelDaysNeedingVisit } from '@/lib/visits';
 import { AttendanceMonthSection } from './AttendanceMonthSection';
 import {
   computePaidDays, earliestLeaveDate, isoDate, monthStart,
@@ -38,7 +39,8 @@ export function EmployeeAttendancePage() {
 
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const [records, holidays, leaves, ledger, expenses, settings, requests] =
+    const [records, holidays, leaves, ledger, expenses, settings, requests,
+      visits] =
       await Promise.all([
         attendanceApi.listForMonth(month, employeeId),
         holidayApi.listBetween(isoDate(month), isoDate(monthEnd)),
@@ -47,8 +49,13 @@ export function EmployeeAttendancePage() {
         expenseApi.listFor(employeeId),
         settingsApi.get(),
         attendanceChangeApi.listFor(employeeId),
+        // Only to tell the employee which travel days still have no visit
+        // recorded. Read-only; nothing here reaches payroll.
+        outdoorVisitApi.listFor(employeeId),
       ]);
-    return { records, holidays, leaves, ledger, expenses, settings, requests };
+    return {
+      records, holidays, leaves, ledger, expenses, settings, requests, visits,
+    };
   }, [employeeId]);
 
   if (!employee) return null;
@@ -57,7 +64,7 @@ export function EmployeeAttendancePage() {
 
   const {
     records = [], holidays = [], leaves = [], ledger = [], expenses = [],
-    requests = [],
+    requests = [], visits = [],
   } = q.data ?? {};
   const holidayDates = new Set(holidays.map((h) => h.holiday_date));
   const breakdown = computePaidDays({ month, records, holidayDates, upTo: today,
@@ -83,14 +90,19 @@ export function EmployeeAttendancePage() {
   // when there is one, and the line is meant to be taken seriously.
   const advanceCount = ledger.filter((l) => l.txn_type === 'advance').length;
 
-  const payDay = ordinalDay(q.data?.settings.salary_payment_day ?? 10);
   /*
    * Absences used to be named here too, nudging the employee to convert them
    * to leave. Removed deliberately: compensatory offs make "Absent" an
    * incomplete reading of the day, so the nudge is waiting on the
    * compensatory-credit work rather than being half-right in the meantime.
    */
-  const showNotice = outstandingAdvance > 0;
+  /*
+   * Travel claimed on days with no visit recorded. A prompt to CHECK, not a
+   * calculation: the employee decides whether the day really was a qualifying
+   * visit, and Admin approves it.
+   */
+  const travelNeedingVisit = travelDaysNeedingVisit({ expenses, visits, today });
+  const showNotice = outstandingAdvance > 0 || travelNeedingVisit.length > 0;
 
   const pendingLeaves = leaves.filter((l) => l.status === 'pending');
   const pendingExpenses = expenses.filter((e) => e.status === 'pending');
@@ -194,8 +206,6 @@ export function EmployeeAttendancePage() {
         */}
       {showNotice && (
         <Card className="callout-warn">
-          <p className="notice-head">Before payroll on the {payDay}</p>
-
           {outstandingAdvance > 0 && (
             <p className="notice-line">
               You currently hold <strong>{formatCurrency(outstandingAdvance)}</strong>
@@ -204,23 +214,37 @@ export function EmployeeAttendancePage() {
               <Link to="/expenses">Submit a bill →</Link>
             </p>
           )}
+
+          {/*
+            * No day count on purpose: the number would read as a tally of
+            * allowances owed, and whether a day qualifies is the employee's
+            * judgement, not something this line can know.
+            */}
+          {travelNeedingVisit.length > 0 && (
+            <p className="notice-line">
+              You have travel claims with no visit recorded. If any was a
+              client visit, record it to claim the outdoor allowance.
+              <Link to="/outdoor-visits">Raise a visit →</Link>
+            </p>
+          )}
         </Card>
       )}
 
       <Card title="Apply for leave" id="apply-leave">
+        {/*
+          * One line, not three. The old text also offered "a day taken off in
+          * lieu of working a Sunday" as an example, which is no longer the
+          * employee's job — Admin settles those against a reserved day when
+          * running payroll.
+          */}
         <p className="muted small">
-          You can apply for a future date, or for a past day you were away — for
-          example a day taken off in lieu of working a Sunday. Admin approves it,
-          and approved leave counts as a paid day.
-        </p>
-        <p className="muted small">
+          For a future date or a past day you were away. Approved leave counts
+          as a paid day.
+          {' '}
           {prevMonthOpen
-            ? `${formatMonth(earliestLeave)} is still open, until the `
-              + `${LEAVE_BACKDATE_CUTOFF_DAY}th of this month, so leave can be `
-              + 'adjusted before payroll is run.'
-            : `Last month closed for leave applications on the `
-              + `${LEAVE_BACKDATE_CUTOFF_DAY}th. For an earlier month, please `
-              + 'ask Admin.'}
+            ? `${formatMonth(earliestLeave)} is open until the `
+              + `${ordinalDay(LEAVE_BACKDATE_CUTOFF_DAY)}.`
+            : `Earlier months are closed — ask Admin.`}
         </p>
         <div className="form-grid-2">
           <TextInput

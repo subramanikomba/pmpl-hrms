@@ -164,10 +164,122 @@ export const attendanceApi = {
     status: AttendanceRecord['status'], markedBy: string,
   ): Promise<void> {
     const { error } = await supabase.from('attendance').upsert(
-      { employee_id: employeeId, date, status, marked_by: markedBy },
+      {
+        employee_id: employeeId, date, status, marked_by: markedBy,
+        // A day that stops being a comp_off must let go of the reserved day
+        // it was settled against, or the row contradicts itself and the
+        // database refuses it. Leave approval overwriting a comp_off day is
+        // the case this covers.
+        ...(status === 'comp_off' ? {} : { comp_off_against: null }),
+      },
       { onConflict: 'employee_id,date' },
     );
     if (error) throw new Error(error.message);
+  },
+};
+
+/* ── Reserved days off ("comp-off") ────────────────────────────── */
+/**
+ * A weekly off or company holiday the employee worked either pays the
+ * weekend bonus (the default) or is RESERVED as a day off they can take
+ * later. An absence settled against a reserved day becomes a paid comp_off.
+ *
+ * Every rule is enforced by the database (trg_validate_comp_off): only a
+ * worked weekly-off/holiday can be reserved, a reserved day can be spent
+ * once, nothing can be changed inside a month whose payroll is already paid,
+ * and a later month's reserved day cannot settle an earlier absence. These
+ * methods only sequence the writes; they do not re-implement the rules.
+ */
+export const compOffApi = {
+  /**
+   * Reserved days on or before the end of `month` that nothing has been
+   * settled against yet — this month's and any carried forward from earlier.
+   */
+  async unspentReserved(month: Date): Promise<AttendanceRecord[]> {
+    const to = isoDate(new Date(month.getFullYear(), month.getMonth() + 1, 0));
+    const [reservedRes, spentRes] = await Promise.all([
+      supabase.from('attendance').select('*')
+        .eq('off_day_use', 'reserved').lte('date', to)
+        .order('date', { ascending: false }),
+      supabase.from('attendance').select('employee_id,comp_off_against')
+        .not('comp_off_against', 'is', null),
+    ]);
+    const reserved = unwrapList<AttendanceRecord>(reservedRes);
+    const spent = new Set(
+      unwrapList<{ employee_id: string; comp_off_against: string }>(spentRes)
+        .map((r) => `${r.employee_id}|${r.comp_off_against}`),
+    );
+    return reserved.filter((r) => !spent.has(`${r.employee_id}|${r.date}`));
+  },
+
+  /** Reserve a worked weekly off / holiday, or release it back to the bonus. */
+  async setReserved(
+    employeeId: string, date: string, reserved: boolean, markedBy: string,
+  ): Promise<void> {
+    const { error } = await supabase.from('attendance').upsert(
+      {
+        employee_id: employeeId, date, status: 'present', marked_by: markedBy,
+        off_day_use: reserved ? 'reserved' : null,
+      },
+      { onConflict: 'employee_id,date' },
+    );
+    if (error) throw new Error(error.message);
+  },
+
+  /** Settle an absence against a reserved day: it becomes a paid comp_off. */
+  async settle(
+    employeeId: string, date: string, against: string, markedBy: string,
+  ): Promise<void> {
+    const { error } = await supabase.from('attendance').upsert(
+      {
+        employee_id: employeeId, date, status: 'comp_off',
+        marked_by: markedBy, comp_off_against: against,
+      },
+      { onConflict: 'employee_id,date' },
+    );
+    if (error) throw new Error(error.message);
+  },
+
+  /** Undo a settlement: the day goes back to being an absence. */
+  async unsettle(
+    employeeId: string, date: string, markedBy: string,
+  ): Promise<void> {
+    const { error } = await supabase.from('attendance').upsert(
+      {
+        employee_id: employeeId, date, status: 'absent',
+        marked_by: markedBy, comp_off_against: null,
+      },
+      { onConflict: 'employee_id,date' },
+    );
+    if (error) throw new Error(error.message);
+  },
+
+  /**
+   * Apply a panel's worth of changes.
+   *
+   * Order matters and is the whole reason this is one function: a reserved
+   * day cannot be released while something is still settled against it, and
+   * an absence cannot be settled against a day not yet reserved. So undo
+   * first, release second, reserve third, settle last.
+   */
+  async applyChanges(markedBy: string, changes: {
+    unsettle: { employeeId: string; date: string }[];
+    release: { employeeId: string; date: string }[];
+    reserve: { employeeId: string; date: string }[];
+    settle: { employeeId: string; date: string; against: string }[];
+  }): Promise<void> {
+    for (const c of changes.unsettle) {
+      await compOffApi.unsettle(c.employeeId, c.date, markedBy);
+    }
+    for (const c of changes.release) {
+      await compOffApi.setReserved(c.employeeId, c.date, false, markedBy);
+    }
+    for (const c of changes.reserve) {
+      await compOffApi.setReserved(c.employeeId, c.date, true, markedBy);
+    }
+    for (const c of changes.settle) {
+      await compOffApi.settle(c.employeeId, c.date, c.against, markedBy);
+    }
   },
 };
 
@@ -515,16 +627,34 @@ export const expenseApi = {
     if (filters.to) q = q.lte('expense_date', filters.to);
     return unwrapList<WithEmployee<CompanyExpense>>(await q);
   },
+  /**
+   * Raise a claim.
+   *
+   * `approveNow` is for an admin recording their own expense: there is
+   * nobody above them to approve it, so they may either leave it pending —
+   * which is the editable state, since ce_own_update permits changes only
+   * while pending — or record it as approved straight away.
+   *
+   * The UI never offers this to a non-admin, and ce_own_insert refuses a
+   * non-admin who sends status/reviewed_by directly.
+   */
   async submit(
     input: Omit<CompanyExpense,
       'id' | 'status' | 'accounted_advance_id' | 'accounted_amount'
       | 'reviewed_by' | 'review_note' | 'reviewed_at' | 'created_at'>,
     receipt?: File | null,
+    approveNow = false,
   ): Promise<void> {
     // Insert first so the row id can key the stored object; the receipt is
     // uploaded only on submit, never while the user is still filling the form.
     const { data, error } = await supabase.from('company_expenses')
-      .insert({ ...input, status: 'pending' })
+      .insert(approveNow
+        ? {
+          ...input, status: 'approved',
+          reviewed_by: input.employee_id,
+          reviewed_at: new Date().toISOString(),
+        }
+        : { ...input, status: 'pending' })
       .select('id')
       .single();
     if (error) throw new Error(error.message);

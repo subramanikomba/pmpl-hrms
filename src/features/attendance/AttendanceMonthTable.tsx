@@ -118,6 +118,10 @@ export function AttendanceMonthTable(
             // a day with a request already awaiting a decision.
             const editable = !isFuture
               && rec?.status !== 'paid_leave'
+              // A day off settled against a reserved day is Admin's record,
+              // same as approved leave. Only Admin may undo it, so the
+              // employee is not offered buttons the database would refuse.
+              && rec?.status !== 'comp_off'
               && !pendingReq
               && employeeMayMark(d, today);
 

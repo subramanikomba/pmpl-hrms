@@ -21,6 +21,8 @@
  * approval dialog and in the payroll count derivation.
  */
 
+import { employeeMayMark } from './payroll';
+
 export type VisitType = 'day' | 'overnight';
 export type VisitStatus = 'pending' | 'approved' | 'rejected';
 
@@ -200,4 +202,41 @@ export function countVisitsForMonth(
     else dayVisitDays += v.day_count;
   }
   return { dayVisitDays, overnightNights, visits: counted };
+}
+
+/* ── Travel claims with no visit recorded ──────────────────────── */
+
+/**
+ * Days the employee claimed TRAVEL on but has no outdoor visit recorded for.
+ *
+ * This is a PROMPT TO CHECK, never a calculation. A travel claim is evidence
+ * that the employee was out, not proof that the day qualifies for an outdoor
+ * allowance — whether it does is a business judgement the employee makes and
+ * Admin approves. Nothing here feeds payroll.
+ *
+ * Deliberately narrow, so the reminder stays worth reading:
+ *   - 'Travel' only. 'Local Conveyance' is a separate category precisely for
+ *     short local trips, and those are not outdoor visits.
+ *   - A rejected claim is not evidence of anything.
+ *   - A visit of ANY status counts as recorded, including one still pending,
+ *     so the reminder disappears the moment the employee acts.
+ *   - Only days the employee may still record a visit for, by the same
+ *     employeeMayMark window the visit form itself enforces. Nagging about a
+ *     day they can no longer file for would be cruel and useless.
+ */
+export function travelDaysNeedingVisit(args: {
+  expenses: readonly { expense_date: string; category: string; status: string }[];
+  visits: readonly { start_date: string; end_date: string; status: string }[];
+  today?: Date;
+}): string[] {
+  const today = args.today ?? new Date();
+  const recorded = args.visits.filter((v) => v.status !== 'rejected');
+
+  const days = args.expenses
+    .filter((e) => e.category === 'Travel' && e.status !== 'rejected')
+    .map((e) => e.expense_date)
+    .filter((d) => employeeMayMark(new Date(`${d}T00:00:00`), today))
+    .filter((d) => !recorded.some((v) => d >= v.start_date && d <= v.end_date));
+
+  return [...new Set(days)].sort();
 }

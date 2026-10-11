@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { countVisitsForMonth, to12Hour, validateVisit } from './visits';
+import { countVisitsForMonth, to12Hour, validateVisit, travelDaysNeedingVisit
+} from './visits';
 
 const today = new Date(2026, 8, 20); // 20 Sep 2026
 
@@ -201,5 +202,99 @@ describe('countVisitsForMonth', () => {
     ], sep);
     expect(c.overnightNights).toBe(2);
     expect(c.visits).toBe(1);
+  });
+});
+
+describe('travelDaysNeedingVisit', () => {
+  // 12 Oct 2026. The visit window is this month, plus last month until
+  // ATTENDANCE_EDIT_CUTOFF_DAY (the 5th) — NOT the 10th, which is the
+  // separate leave back-dating cutoff. So September is already closed.
+  const today = new Date(2026, 9, 12);
+  const exp = (date: string, category = 'Travel', status = 'approved') =>
+    ({ expense_date: date, category, status });
+  const visit = (start: string, end = start, status = 'approved') =>
+    ({ start_date: start, end_date: end, status });
+
+  it('flags a travel claim with no visit', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-03')], visits: [], today,
+    })).toEqual(['2026-10-03']);
+  });
+
+  it('says nothing once a visit covers the day', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-03')],
+      visits: [visit('2026-10-01', '2026-10-05')], today,
+    })).toEqual([]);
+  });
+
+  it('counts a PENDING visit as recorded, so the nudge clears at once', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-03')],
+      visits: [visit('2026-10-03', '2026-10-03', 'pending')], today,
+    })).toEqual([]);
+  });
+
+  it('ignores a rejected visit', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-03')],
+      visits: [visit('2026-10-03', '2026-10-03', 'rejected')], today,
+    })).toEqual(['2026-10-03']);
+  });
+
+  it('ignores categories that are not Travel', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [
+        exp('2026-10-03', 'Local Conveyance'),
+        exp('2026-10-04', 'Food'),
+        exp('2026-10-05', 'Parts/Components'),
+      ],
+      visits: [], today,
+    })).toEqual([]);
+  });
+
+  it('ignores a rejected claim', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-03', 'Travel', 'rejected')], visits: [], today,
+    })).toEqual([]);
+  });
+
+  it('counts a pending claim, which is still evidence of a trip', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-03', 'Travel', 'pending')], visits: [], today,
+    })).toEqual(['2026-10-03']);
+  });
+
+  it('stays silent about days too old to record a visit for', () => {
+    // 12 Oct is past the 5th, so September is closed to new visits.
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-09-24')], visits: [], today,
+    })).toEqual([]);
+  });
+
+  it('does include last month while the window is still open', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-09-24')], visits: [], today: new Date(2026, 9, 4),
+    })).toEqual(['2026-09-24']);
+  });
+
+  it('closes last month on the 5th, not the 10th', () => {
+    // Worth pinning down: the visit window is SHORTER than the leave window,
+    // so by payroll day last month can no longer be filed for.
+    const open = travelDaysNeedingVisit({
+      expenses: [exp('2026-09-24')], visits: [], today: new Date(2026, 9, 5),
+    });
+    const shut = travelDaysNeedingVisit({
+      expenses: [exp('2026-09-24')], visits: [], today: new Date(2026, 9, 6),
+    });
+    expect(open).toEqual(['2026-09-24']);
+    expect(shut).toEqual([]);
+  });
+
+  it('reports each day once and in order', () => {
+    expect(travelDaysNeedingVisit({
+      expenses: [exp('2026-10-09'), exp('2026-10-03'), exp('2026-10-09')],
+      visits: [], today,
+    })).toEqual(['2026-10-03', '2026-10-09']);
   });
 });

@@ -3,8 +3,8 @@ import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
 import {
-  attendanceApi, employeesApi, holidayApi, outdoorVisitApi, payrollApi,
-  rulesApi, salaryAdvanceApi, salaryApi, settingsApi,
+  attendanceApi, compOffApi, employeesApi, holidayApi, outdoorVisitApi,
+  payrollApi, rulesApi, salaryAdvanceApi, salaryApi, settingsApi,
 } from '@/lib/api';
 import {
   capRecovery, computeAllowanceAmount, computePaidDays, computePayroll,
@@ -21,8 +21,11 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { TextInput } from '@/components/ui/Field';
 import { RecordPaymentModal } from './RecordPaymentModal';
+import { WeekendWorkingModal } from './WeekendWorkingModal';
 import { Modal } from '@/components/ui/Modal';
-import type { Employee, PayrollRecord, SalaryStructure } from '@/types/db';
+import type {
+  AttendanceRecord, Employee, PayrollRecord, SalaryStructure,
+} from '@/types/db';
 
 /** Per-employee editable inputs, keyed by employee id. */
 interface RowEdits {
@@ -42,6 +45,7 @@ export function PayrollPage() {
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [edits, setEdits] = useState<Record<string, RowEdits>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [weekendFor, setWeekendFor] = useState<Employee | null>(null);
   const [paying, setPaying] = useState<
     { record: PayrollRecord; employee: Employee } | null>(null);
   const [allowancesFor, setAllowancesFor] = useState<
@@ -59,7 +63,7 @@ export function PayrollPage() {
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
     const [employees, existing, settings, holidays, attendance,
-      advances, recoveries, rules] =
+      advances, recoveries, rules, carried] =
       await Promise.all([
         employeesApi.listActive(),
         payrollApi.listForMonth(month),
@@ -69,6 +73,10 @@ export function PayrollPage() {
         salaryAdvanceApi.listAll(),
         salaryAdvanceApi.recoveries(),
         rulesApi.list(),
+        // Reserved days still unspent, including any carried from an
+        // earlier month — a Sunday worked on 27 Sep can pay for an absence
+        // on 1 Oct, so this month's records alone are not enough.
+        compOffApi.unspentReserved(month),
       ]);
     // Fetched separately, deliberately: outdoor visits only supply suggested
     // allowance quantities and must not hold up the payroll figures.
@@ -81,7 +89,7 @@ export function PayrollPage() {
     }));
     return {
       employees, existing, settings, holidays, attendance,
-      structureMap, advances, recoveries, rules, visits,
+      structureMap, advances, recoveries, rules, visits, carried,
     };
   }, [monthValue]);
 
@@ -91,7 +99,7 @@ export function PayrollPage() {
 
   const {
     employees, existing, settings, holidays, attendance, structureMap,
-    advances, recoveries, rules, visits,
+    advances, recoveries, rules, visits, carried,
   } = q.data;
   const activeRules = rules.filter((r) => r.is_active);
 
@@ -177,6 +185,35 @@ export function PayrollPage() {
       dayVisitDays: vc.dayVisitDays,
       overnightNights: vc.overnightNights,
     });
+  }
+
+  /** This employee's attendance rows for the payroll month. */
+  function recordsFor(empId: string): AttendanceRecord[] {
+    return attendance.filter((a) => a.employee_id === empId);
+  }
+
+  /**
+   * Does this employee have anything to decide about weekend working? Only
+   * then is the link shown, so a row with nothing to settle looks exactly
+   * as it does today.
+   */
+  function weekendSummaryFor(emp: Employee): string | null {
+    const recs = recordsFor(emp.id);
+    const working = new Set(settings.working_days ?? [1, 2, 3, 4, 5, 6]);
+    let workedOff = 0, absent = 0;
+    for (const r of recs) {
+      const d = new Date(`${r.date}T00:00:00`);
+      const isOff = !working.has(d.getDay()) || holidayDates.has(r.date);
+      if (isOff && r.status === 'present') workedOff++;
+      else if (!isOff && (r.status === 'absent' || r.status === 'comp_off')) absent++;
+    }
+    if (workedOff === 0 && absent === 0) return null;
+    const parts: string[] = [];
+    if (absent > 0) parts.push(`${absent} absent`);
+    if (workedOff > 0) {
+      parts.push(`${workedOff} off day${workedOff === 1 ? '' : 's'} worked`);
+    }
+    return parts.join(' · ');
   }
 
   function defaultsForId(empId: string): RowEdits {
@@ -568,6 +605,27 @@ export function PayrollPage() {
         />
       )}
 
+      {weekendFor && (
+        <WeekendWorkingModal
+          employee={weekendFor}
+          month={month}
+          records={recordsFor(weekendFor.id)}
+          holidayDates={holidayDates}
+          workingDays={settings.working_days}
+          carried={carried}
+          onClose={() => setWeekendFor(null)}
+          onSaved={(paidDays) => {
+            // Attendance has moved, so the row's paid days must move with it.
+            // Set it explicitly rather than relying on the reload: a row
+            // already saved as a draft would otherwise keep showing the paid
+            // days stored before the swap.
+            setEdit(weekendFor.id, { paidDays: String(paidDays) });
+            setWeekendFor(null);
+            q.reload();
+          }}
+        />
+      )}
+
       <div className="table-scroll">
         <table className="payroll-table">
           <thead>
@@ -611,6 +669,16 @@ export function PayrollPage() {
                       value={e.paidDays} disabled={rowLocked}
                       onChange={(ev) => setEdit(emp.id, { paidDays: ev.target.value })} />
                     <span className="muted"> / {dim}</span>
+                    {/* Shown only when there is something to decide, and
+                        never once the month is locked. */}
+                    {!rowLocked && weekendSummaryFor(emp) && (
+                      <div>
+                        <button type="button" className="link-btn weekend-link"
+                          onClick={() => setWeekendFor(emp)}>
+                          {weekendSummaryFor(emp)}
+                        </button>
+                      </div>
+                    )}
                   </td>
                   {computed ? (
                     <>

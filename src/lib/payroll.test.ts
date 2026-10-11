@@ -6,6 +6,7 @@ import {
   needsPresentApproval, deriveBonusCounts, qualifiesForAttendanceBonus,
   findUnmarkedAttendance, capRecovery, structureIsLocked,
 } from './payroll';
+import type { AttendanceRecord } from '@/types/db';
 
 const STRUCT = {
   basic: 20000, hra: 8000, special_allowance: 4000,
@@ -381,11 +382,152 @@ describe('computeAllowanceAmount', () => {
   });
 });
 
+/*
+ * Reserved days off ("comp-off").
+ *
+ * The rule the business cares about: ONE worked Sunday or holiday earns the
+ * weekend bonus OR a day off, never both. In the code that falls out of a
+ * single decision — a reserved day is simply not counted as a worked off-day
+ * — so these tests check the money consequence, not the mechanism.
+ */
+describe('reserved days off', () => {
+  const month = new Date(2026, 7, 1); // Aug 2026: Sundays 2, 9, 16, 23, 30
+
+  it('a worked Sunday still earns the bonus when it is not reserved', () => {
+    const b = computePaidDays({
+      month,
+      records: [{ date: '2026-08-02', status: 'present' }],
+      holidayDates: new Set(),
+    });
+    expect(b.workedWeeklyOffs).toBe(1);
+    expect(b.workedOffDays).toBe(1);
+    expect(deriveBonusCounts({ breakdown: b, dayVisitDays: 0, overnightNights: 0 })
+      .emergency_weekend).toBe(1);
+  });
+
+  it('reserving a worked Sunday withdraws it from the bonus count', () => {
+    const b = computePaidDays({
+      month,
+      records: [{ date: '2026-08-02', status: 'present', off_day_use: 'reserved' }],
+      holidayDates: new Set(),
+    });
+    expect(b.workedWeeklyOffs).toBe(0);
+    expect(b.workedOffDays).toBe(0);
+    expect(deriveBonusCounts({ breakdown: b, dayVisitDays: 0, overnightNights: 0 })
+      .emergency_weekend).toBe(0);
+  });
+
+  it('an explicit bonus choice behaves exactly like no choice', () => {
+    const reserved = computePaidDays({
+      month,
+      records: [{ date: '2026-08-02', status: 'present', off_day_use: 'bonus' }],
+      holidayDates: new Set(),
+    });
+    const untouched = computePaidDays({
+      month,
+      records: [{ date: '2026-08-02', status: 'present' }],
+      holidayDates: new Set(),
+    });
+    expect(reserved).toEqual(untouched);
+  });
+
+  it('reserving a worked HOLIDAY also withdraws it', () => {
+    const b = computePaidDays({
+      month,
+      records: [{ date: '2026-08-15', status: 'present', off_day_use: 'reserved' }],
+      holidayDates: new Set(['2026-08-15']),
+    });
+    expect(b.workedHolidays).toBe(0);
+    expect(b.companyHolidays).toBe(1);
+  });
+
+  it('only the reserved day is withdrawn, not the others', () => {
+    const b = computePaidDays({
+      month,
+      records: [
+        { date: '2026-08-02', status: 'present' },
+        { date: '2026-08-09', status: 'present', off_day_use: 'reserved' },
+        { date: '2026-08-16', status: 'present' },
+      ],
+      holidayDates: new Set(),
+    });
+    expect(b.workedOffDays).toBe(2);
+  });
+
+  it('a comp_off day is paid, so the absence stops cutting pay', () => {
+    const withAbsence = computePaidDays({
+      month,
+      records: [{ date: '2026-08-04', status: 'absent' }],
+      holidayDates: new Set(), upTo: new Date(2026, 7, 4),
+    });
+    const withSwap = computePaidDays({
+      month,
+      records: [{ date: '2026-08-04', status: 'comp_off' }],
+      holidayDates: new Set(), upTo: new Date(2026, 7, 4),
+    });
+    expect(withSwap.paidDays).toBe(withAbsence.paidDays + 1);
+    expect(withSwap.absent).toBe(withAbsence.absent - 1);
+    expect(withSwap.compOff).toBe(1);
+  });
+
+  it('a comp_off day does NOT disqualify the 100% attendance bonus', () => {
+    // The employee worked a full month's days — one was simply shifted.
+    const b = computePaidDays({
+      month,
+      records: [
+        // Every working day in August worked, except the 4th which is the
+        // day off taken against the Sunday worked on the 2nd.
+        ...['01','03','05','06','07','08','10','11','12','13','14','15','17',
+          '18','19','20','21','22','24','25','26','27','28','29','31']
+          .map((d): Pick<AttendanceRecord, 'date' | 'status' | 'off_day_use'> =>
+            ({ date: `2026-08-${d}`, status: 'present' })),
+        { date: '2026-08-02', status: 'present', off_day_use: 'reserved' },
+        { date: '2026-08-04', status: 'comp_off' },
+      ],
+      holidayDates: new Set(),
+    });
+    expect(b.compOff).toBe(1);
+    expect(b.paidLeave).toBe(0);
+    expect(b.absent).toBe(0);
+    expect(qualifiesForAttendanceBonus(b)).toBe(true);
+  });
+
+  it('paid leave still disqualifies it, as before', () => {
+    const b = computePaidDays({
+      month,
+      records: [{ date: '2026-08-04', status: 'paid_leave' }],
+      holidayDates: new Set(), upTo: new Date(2026, 7, 4),
+    });
+    expect(qualifiesForAttendanceBonus(b)).toBe(false);
+  });
+
+  it('the full swap nets out: one more paid day, one less bonus day', () => {
+    const before = computePaidDays({
+      month,
+      records: [
+        { date: '2026-08-02', status: 'present' },
+        { date: '2026-08-04', status: 'absent' },
+      ],
+      holidayDates: new Set(), upTo: new Date(2026, 7, 4),
+    });
+    const after = computePaidDays({
+      month,
+      records: [
+        { date: '2026-08-02', status: 'present', off_day_use: 'reserved' },
+        { date: '2026-08-04', status: 'comp_off' },
+      ],
+      holidayDates: new Set(), upTo: new Date(2026, 7, 4),
+    });
+    expect(after.paidDays).toBe(before.paidDays + 1);
+    expect(after.workedOffDays).toBe(before.workedOffDays - 1);
+  });
+});
+
 describe('qualifiesForAttendanceBonus', () => {
   const base = {
     present: 26, paidLeave: 0, unpaidLeave: 0, weeklyOffs: 5,
-    companyHolidays: 0, absent: 0, paidDays: 31, workedWeeklyOffs: 0,
-    workedHolidays: 0, workedOffDays: 0,
+    companyHolidays: 0, absent: 0, compOff: 0, paidDays: 31,
+    workedWeeklyOffs: 0, workedHolidays: 0, workedOffDays: 0,
   };
   it('qualifies with no absence and no leave', () => {
     expect(qualifiesForAttendanceBonus(base)).toBe(true);
@@ -402,8 +544,8 @@ describe('qualifiesForAttendanceBonus', () => {
 describe('deriveBonusCounts', () => {
   const breakdown = {
     present: 26, paidLeave: 0, unpaidLeave: 0, weeklyOffs: 5,
-    companyHolidays: 0, absent: 0, paidDays: 31, workedWeeklyOffs: 2,
-    workedHolidays: 0, workedOffDays: 2,
+    companyHolidays: 0, absent: 0, compOff: 0, paidDays: 31,
+    workedWeeklyOffs: 2, workedHolidays: 0, workedOffDays: 2,
   };
 
   it('derives every rule from the records', () => {

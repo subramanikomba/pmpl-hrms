@@ -29,7 +29,7 @@ const CATEGORIES = [
 ] as const;
 
 export function MyExpensesPage() {
-  const { employee } = useAuth();
+  const { employee, isAdmin } = useAuth();
   const toast = useToast();
   const employeeId = employee?.id ?? '';
 
@@ -144,7 +144,11 @@ export function MyExpensesPage() {
     setPaidFromAdvance(false); setReceipt(null);
   }
 
-  async function submit() {
+  /**
+   * `approveNow` only ever comes from the admin's own form. An employee has
+   * no such button, and RLS would reject the write regardless.
+   */
+  async function submit(approveNow = false) {
     const amt = Number(amount);
     if (!date || !category || !Number.isFinite(amt) || amt <= 0) {
       toast.error('Enter a date, category and a valid amount.');
@@ -167,13 +171,17 @@ export function MyExpensesPage() {
           client_id: clientId || null,
           client_location_id: clientLocationId || null, receipt_url: null,
           paid_from_advance: outstanding > 0 ? paidFromAdvance : false,
-        }, receipt);
+        }, receipt, approveNow);
       }
       toast.success(
         editingId
           ? (receipt ? 'Expense updated and receipt replaced.' : 'Expense updated.')
-          : (receipt ? 'Expense and receipt submitted for approval.'
-                     : 'Expense submitted for approval.'),
+          : approveNow
+            ? 'Expense recorded as approved.'
+            : isAdmin
+              ? 'Expense saved. You can edit it until you approve it.'
+              : (receipt ? 'Expense and receipt submitted for approval.'
+                         : 'Expense submitted for approval.'),
       );
       cancelEdit();
       q.reload();
@@ -255,28 +263,34 @@ export function MyExpensesPage() {
             approves it.
           </p>
         )}
-        <div className="form-grid-2">
+        {/*
+          * The three required fields share the first row, so everything
+          * mandatory is seen at once and the rest of the form reads as
+          * optional. Fields are sized to their content — a bill number does
+          * not need half the card — which also makes the old standalone
+          * "* Required" line unnecessary.
+          */}
+        <div className="form-row-3">
           <TextInput label="Date *" type="date" value={date}
             onChange={(e) => setDate(e.target.value)} />
           <Select label="Category *" value={category}
             onChange={(e) => setCategory(e.target.value)}>
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
-        </div>
-        <div className="form-grid-2">
           <TextInput label="Amount (₹) *" type="number" min="0" step="0.01" value={amount}
             onChange={(e) => setAmount(e.target.value)} />
+        </div>
+        <div className="form-row-2">
           <TextInput label="Bill number" value={bill}
             onChange={(e) => setBill(e.target.value)} placeholder="Optional" />
+          <Select label="Client (if applicable)" value={clientId}
+            onChange={(e) => setClientId(e.target.value)}>
+            <option value="">— No client —</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
         </div>
-        <Select label="Client (if applicable)" value={clientId}
-          onChange={(e) => setClientId(e.target.value)}>
-          <option value="">— No client —</option>
-          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
         <ClientLocationSelect clientId={clientId} value={clientLocationId}
           onChange={setClientLocationId} />
-        <p className="muted small">* Required</p>
         <TextArea label="Description" value={description}
           onChange={(e) => setDescription(e.target.value)} placeholder="Optional details" />
 
@@ -296,12 +310,38 @@ export function MyExpensesPage() {
           </div>
         )}
         <ReceiptPicker file={receipt} onChange={setReceipt} />
+        {/*
+          * The admin has nobody above them to approve a claim, so they choose:
+          * leave it pending, which is the editable state, or record it as
+          * approved now. Everyone else keeps the single Submit button.
+          */}
+        {isAdmin && !editingId && (
+          <p className="muted small approve-caution">
+            Once recorded as approved, the claim can no longer be edited.
+          </p>
+        )}
         <div className="btn-row">
-          <Button variant="primary" disabled={saving} onClick={() => void submit()}>
-            {saving
-              ? (editingId ? 'Saving…' : 'Submitting…')
-              : (editingId ? 'Save changes' : 'Submit expense')}
-          </Button>
+          {isAdmin && !editingId ? (
+            <>
+              <Button variant="primary" disabled={saving}
+                onClick={() => void submit(true)}>
+                {saving ? 'Saving…' : 'Record as approved'}
+              </Button>
+              {/* "Save for later", not "Save": beside an approve button a
+                  bare Save reads as saving the form, not as leaving the
+                  claim editable. */}
+              <Button variant="secondary" disabled={saving}
+                onClick={() => void submit()}>
+                Save for later
+              </Button>
+            </>
+          ) : (
+            <Button variant="primary" disabled={saving} onClick={() => void submit()}>
+              {saving
+                ? (editingId ? 'Saving…' : 'Submitting…')
+                : (editingId ? 'Save changes' : 'Submit expense')}
+            </Button>
+          )}
           {editingId && (
             <Button variant="ghost" onClick={cancelEdit}>Cancel edit</Button>
           )}

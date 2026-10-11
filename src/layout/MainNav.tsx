@@ -19,6 +19,10 @@ const ADMIN_PRIMARY: NavItem[] = [
   { to: '/admin/approvals', label: 'Approvals' },
   { to: '/admin/payroll', label: 'Payroll' },
   { to: '/admin/salary-slips', label: 'Salary Slips' },
+  // The admin is an employee too, and raises expense claims like anyone
+  // else. Kept in the primary bar rather than under More because it is a
+  // thing they DO, not a report they consult.
+  { to: '/expenses', label: 'My Expenses' },
 ];
 
 /** Grouped so the admin bar stays compact; routes are unchanged. */

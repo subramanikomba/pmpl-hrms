@@ -46,12 +46,24 @@ export interface PaidDayBreakdown {
   weeklyOffs: number;
   companyHolidays: number;
   absent: number;
+  /**
+   * Days off taken against a weekly off or holiday the employee worked.
+   * Paid, and deliberately counted apart from paidLeave so they do not
+   * disqualify the 100% Attendance Bonus.
+   */
+  compOff: number;
   paidDays: number;
   /**
    * Days the employee marked Present that fall on a weekly off or a company
    * holiday. These are ALREADY paid as offs/holidays, so they are deliberately
    * excluded from `paidDays` — the count exists purely to supply the quantity
    * for the Emergency / Weekend Service allowance rule.
+   *
+   * A day Admin has RESERVED as a day off is excluded here: reserving it is
+   * the decision to take the day off instead of the bonus, so it must not
+   * also raise the allowance quantity. That is what stops one worked day
+   * earning both benefits, and it means deriveBonusCounts needs no knowledge
+   * of reserved days at all.
    */
   workedWeeklyOffs: number;
   workedHolidays: number;
@@ -68,7 +80,7 @@ export interface PaidDayBreakdown {
  */
 export function computePaidDays(params: {
   month: Date;
-  records: Pick<AttendanceRecord, 'date' | 'status'>[];
+  records: Pick<AttendanceRecord, 'date' | 'status' | 'off_day_use'>[];
   holidayDates: ReadonlySet<string>;
   upTo?: Date;
   /** Working days (0=Sun..6=Sat). Defaults to Mon–Sat. */
@@ -78,12 +90,16 @@ export function computePaidDays(params: {
   const working = new Set(params.workingDays ?? [1, 2, 3, 4, 5, 6]);
   const total = daysInMonth(month);
   const byDate = new Map<string, AttendanceStatus>();
-  for (const r of records) byDate.set(r.date, r.status);
+  const reserved = new Set<string>();
+  for (const r of records) {
+    byDate.set(r.date, r.status);
+    if (r.off_day_use === 'reserved') reserved.add(r.date);
+  }
 
   const upTo = params.upTo ? isoDate(params.upTo) : null;
 
   let present = 0, paidLeave = 0, weeklyOffs = 0, companyHolidays = 0, absent = 0;
-  let unpaidLeave = 0;
+  let unpaidLeave = 0, compOff = 0;
   let workedWeeklyOffs = 0, workedHolidays = 0;
 
   for (let day = 1; day <= total; day++) {
@@ -99,17 +115,19 @@ export function computePaidDays(params: {
     // Emergency / Weekend allowance instead, via workedWeeklyOffs.
     if (!working.has(d.getDay())) {
       weeklyOffs++;
-      if (status === 'present') workedWeeklyOffs++;
+      if (status === 'present' && !reserved.has(ds)) workedWeeklyOffs++;
       continue;
     }
     // Same reasoning for a company holiday: paid once as a holiday, with the
     // work recognised through the allowance rule.
     if (holidayDates.has(ds)) {
       companyHolidays++;
-      if (status === 'present') workedHolidays++;
+      if (status === 'present' && !reserved.has(ds)) workedHolidays++;
       continue;
     }
     if (status === 'present') { present++; continue; }
+    // Paid, but kept out of paidLeave so the attendance bonus survives a swap.
+    if (status === 'comp_off') { compOff++; continue; }
     if (status === 'paid_leave') { paidLeave++; continue; }
     // Authorised but unpaid: not a paid day, and not the same as Absent.
     if (status === 'unpaid_leave') { unpaidLeave++; continue; }
@@ -120,7 +138,8 @@ export function computePaidDays(params: {
 
   return {
     present, paidLeave, unpaidLeave, weeklyOffs, companyHolidays, absent,
-    paidDays: present + paidLeave + weeklyOffs + companyHolidays,
+    compOff,
+    paidDays: present + paidLeave + weeklyOffs + companyHolidays + compOff,
     workedWeeklyOffs, workedHolidays,
     workedOffDays: workedWeeklyOffs + workedHolidays,
   };

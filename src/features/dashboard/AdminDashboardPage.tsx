@@ -195,8 +195,11 @@ export function AdminDashboardPage() {
             <li>
               {/* Opens the Advance & expense summary directly, so the figure
                   leads to the breakdown behind it. */}
+              {/* Says WHO holds the money and WHY it still matters, rather
+                  than labelling it as an abstract balance. The employee sees
+                  the same money from the other side: "You currently hold …". */}
               <Link to="/admin/company-advance?tab=summary">
-                Outstanding company advances
+                Money held by employees, not yet accounted
               </Link>
               <strong>{formatCurrency(d.outstandingAdvance)}</strong>
             </li>

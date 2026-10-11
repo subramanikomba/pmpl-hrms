@@ -5,7 +5,20 @@ import type { AllowanceLine } from '@/lib/payroll';
 export type EmployeeStatus = 'active' | 'inactive';
 export type AttendanceStatus =
   | 'present' | 'paid_leave' | 'unpaid_leave' | 'weekly_off'
-  | 'company_holiday' | 'absent';
+  | 'company_holiday' | 'absent'
+  /**
+   * A day off taken against a weekly off or holiday the employee worked.
+   * A PAID day, but deliberately not 'paid_leave': leave disqualifies the
+   * 100% Attendance Bonus, and a swapped day should not, since the employee
+   * still worked a full month's days.
+   */
+  | 'comp_off';
+
+/**
+ * What Admin chose to do with a weekly off or company holiday the employee
+ * worked. Absent (null) means the default: it pays the weekend bonus.
+ */
+export type OffDayUse = 'bonus' | 'reserved';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type PayrollStatus = 'draft' | 'processed' | 'paid';
 
@@ -49,6 +62,10 @@ export interface AttendanceRecord {
   date: string;
   status: AttendanceStatus;
   marked_by: string | null;
+  /** Worked weekly-off/holiday rows only. Null = pays the weekend bonus. */
+  off_day_use?: OffDayUse | null;
+  /** comp_off rows only. The worked date this day off is settled against. */
+  comp_off_against?: string | null;
 }
 
 /**
