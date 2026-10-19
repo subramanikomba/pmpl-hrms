@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@/lib/useQuery';
 import { useToast } from '@/components/ui/ToastProvider';
@@ -71,6 +71,13 @@ export function ReimbursementsTab() {
       : allPayments),
     [allPayments, employeeId],
   );
+
+  /*
+   * Which employee's breakdown is open. One at a time, like the Advance &
+   * expense summary: two panels open at once makes the table hard to read
+   * and the figures hard to tell apart.
+   */
+  const [openFor, setOpenFor] = useState<string | null>(null);
 
   /** Employees with something still owed, and how much. */
   const pendingByEmployee = useMemo(() => {
@@ -219,24 +226,55 @@ export function ReimbursementsTab() {
                 </tr>
               </thead>
               <tbody>
-                {pendingByEmployee.map((r) => (
-                  <tr key={r.employee.id}>
-                    <td>
-                      <strong>{r.employee.employee_code}</strong>
-                      <div className="emp-name">
-                        {r.employee.first_name} {r.employee.last_name}
-                      </div>
-                    </td>
-                    <td className="num">{r.claims.length}</td>
-                    <td className="num"><strong>{formatCurrency(r.total)}</strong></td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Button size="sm" variant="primary"
-                        onClick={() => setPaying(r.employee)}>
-                        Record reimbursement
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {pendingByEmployee.map((r) => {
+                  const isOpen = openFor === r.employee.id;
+                  return (
+                    <Fragment key={r.employee.id}>
+                      <tr className={isOpen ? 'is-expanded' : undefined}>
+                        <td>
+                          <strong>{r.employee.employee_code}</strong>
+                          <div className="emp-name">
+                            {r.employee.first_name} {r.employee.last_name}
+                          </div>
+                        </td>
+                        <td className="num">{r.claims.length}</td>
+                        <td className="num">
+                          {/* The amount opens the claims behind it, the same
+                              way it does on the Advance & expense summary. */}
+                          <button type="button"
+                            className={`amount-toggle ${isOpen ? 'is-open' : ''}`}
+                            aria-expanded={isOpen}
+                            aria-label={`${isOpen ? 'Hide' : 'Show'} the `
+                              + `${r.claims.length} claim`
+                              + `${r.claims.length === 1 ? '' : 's'} behind this `
+                              + `amount for ${r.employee.first_name} `
+                              + `${r.employee.last_name}`}
+                            onClick={() => setOpenFor(isOpen ? null : r.employee.id)}>
+                            <strong>{formatCurrency(r.total)}</strong>
+                            <span className="amount-caret" aria-hidden="true">
+                              {isOpen ? '▴' : '▾'}
+                            </span>
+                          </button>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <Button size="sm" variant="primary"
+                            onClick={() => setPaying(r.employee)}>
+                            Record reimbursement
+                          </Button>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="row-detail">
+                          <td colSpan={4}>
+                            <div className="row-detail-inner">
+                              <ClaimBreakdown claims={r.claims} />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
                 <tr>
                   <td><strong>Total</strong></td>
                   <td className="num">
@@ -349,5 +387,59 @@ export function ReimbursementsTab() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * The approved claims behind one pending amount.
+ *
+ * No total line: the figure that was clicked to open this panel IS the total,
+ * and repeating it underneath invites the reader to check one against the
+ * other for no reason. Same reasoning as the Advance & expense summary, whose
+ * breakdown this deliberately matches.
+ */
+function ClaimBreakdown(
+  { claims }: { claims: ExpenseReimbursementStatus[] },
+) {
+  // Oldest first, so the panel reads like a statement and the claim that has
+  // waited longest — the reason the row is here — is at the top.
+  const rows = [...claims].sort(
+    (a, b) => a.expense_date.localeCompare(b.expense_date));
+
+  return (
+    <div className="breakdown">
+      <div className="breakdown-head">
+        Awaiting reimbursement
+        <span className="muted">
+          {' '}· {rows.length} claim{rows.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      <ul className="breakdown-list">
+        {rows.map((c) => {
+          const note = c.description?.trim() ?? '';
+          const outstanding = Number(c.outstanding_amount);
+          const approved = Number(c.approved_amount);
+          // A claim can be settled in parts, so when what is left differs
+          // from what was approved, say so — otherwise the figure looks like
+          // the whole claim and the arithmetic will not add up for the reader.
+          const partial = round2(outstanding) !== round2(approved);
+          return (
+            <li key={c.expense_id}>
+              <span className="breakdown-when">
+                {formatDate(c.expense_date)}
+                <span className="muted"> · {c.category}</span>
+                {note && <span className="muted"> · {note}</span>}
+              </span>
+              <strong className="breakdown-amt">
+                {formatCurrency(outstanding)}
+                {partial && (
+                  <span className="muted"> of {formatCurrency(approved)}</span>
+                )}
+              </strong>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
+import { IncludeInactive } from '@/components/ui/IncludeInactive';
+import {
+  clearSelectionIfHidden, employeeLabel, inactiveCount, scopedEmployees,
+} from '@/lib/employeeScope';
 import { useToast } from '@/components/ui/ToastProvider';
 import { employeesApi, payrollApi, settingsApi } from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
@@ -22,6 +26,8 @@ export function SalarySlipsPage() {
   const toast = useToast();
   const today = useMemo(() => new Date(), []);
   const [employeeId, setEmployeeId] = useState('');
+  // A leaver's final salary slip is often the one most asked for.
+  const [includeInactive, setIncludeInactive] = useState(false);
   // Opens on the PREVIOUS month, matching My Salary Slips. A slip exists only
   // once payroll has been paid, and a month's payroll is paid in the month
   // after it, so the current month is almost always empty.
@@ -36,7 +42,7 @@ export function SalarySlipsPage() {
   const month = parseMonthInput(monthValue) ?? monthStart(defaultMonth);
   const refs = useQuery(async () => {
     const [employees, settings] = await Promise.all([
-      employeesApi.listActive(), settingsApi.get(),
+      employeesApi.list(), settingsApi.get(),
     ]);
     return { employees, settings };
   }, []);
@@ -170,12 +176,21 @@ export function SalarySlipsPage() {
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
-            {(refs.data?.employees ?? []).map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
+            {scopedEmployees(refs.data?.employees ?? [], includeInactive).map((e) => (
+              <option key={e.id} value={e.id}>{employeeLabel(e)}</option>
             ))}
           </Select>
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <IncludeInactive
+              checked={includeInactive}
+              count={inactiveCount(refs.data?.employees ?? [])}
+              onChange={(v) => {
+                setIncludeInactive(v);
+                setEmployeeId((cur) =>
+                  clearSelectionIfHidden(cur, refs.data?.employees ?? [], v));
+              }} />
+          </div>
         </div>
 
         {employeeId && (

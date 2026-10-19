@@ -2,6 +2,10 @@ import { useMemo, useState } from 'react';
 import { AdminAttendanceEditor } from './AdminAttendanceEditor';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@/lib/useQuery';
+import { IncludeInactive } from '@/components/ui/IncludeInactive';
+import {
+  clearSelectionIfHidden, employeeLabel, inactiveCount, scopedEmployees,
+} from '@/lib/employeeScope';
 import { attendanceApi, employeesApi, holidayApi, settingsApi } from '@/lib/api';
 import {
   computePaidDays, daysInMonth, findUnmarkedAttendance, isoDate, monthStart,
@@ -30,6 +34,8 @@ export function AttendanceReportPage() {
   const today = useMemo(() => new Date(), []);
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [employeeId, setEmployeeId] = useState('');
+  // A leaver's attendance for a past month is still a real record.
+  const [includeInactive, setIncludeInactive] = useState(false);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
 
@@ -39,7 +45,7 @@ export function AttendanceReportPage() {
   const focusDate = params.get('date');
   const showExceptions = params.get('exceptions') === '1';
 
-  const emps = useQuery(() => employeesApi.listActive(), []);
+  const emps = useQuery(() => employeesApi.list(), []);
   const q = useQuery(async () => {
     const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
     const [records, holidays, settings] = await Promise.all([
@@ -50,7 +56,8 @@ export function AttendanceReportPage() {
     return { records, holidays, settings };
   }, [monthValue, employeeId]);
 
-  const employees = (emps.data ?? []).filter((e) => !employeeId || e.id === employeeId);
+  const employees = scopedEmployees(emps.data ?? [], includeInactive)
+    .filter((e) => !employeeId || e.id === employeeId);
   const total = daysInMonth(month);
   const days = Array.from({ length: total }, (_, i) =>
     new Date(month.getFullYear(), month.getMonth(), i + 1));
@@ -160,12 +167,21 @@ export function AttendanceReportPage() {
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>
-            {(emps.data ?? []).map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
+            {scopedEmployees(emps.data ?? [], includeInactive).map((e) => (
+              <option key={e.id} value={e.id}>{employeeLabel(e)}</option>
             ))}
           </Select>
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <IncludeInactive
+              checked={includeInactive}
+              count={inactiveCount(emps.data ?? [])}
+              onChange={(v) => {
+                setIncludeInactive(v);
+                setEmployeeId((cur) =>
+                  clearSelectionIfHidden(cur, emps.data ?? [], v));
+              }} />
+          </div>
           <TextInput label="Month" type="month" value={monthValue}
             onChange={(e) => setMonthValue(e.target.value)} />
         </div>

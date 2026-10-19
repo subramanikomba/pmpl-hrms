@@ -871,3 +871,21 @@ select.input { appearance: none; -webkit-appearance: none; padding-right: 32px;
 @media (max-width: 700px) {
   .form-row-3, .form-row-2 { grid-template-columns: 1fr; }
 }
+
+/* ── Include inactive employees ─────────────────────────────────
+ * Quiet until it matters: muted and small while off, brand-coloured once
+ * on so a report that includes leavers never looks like an ordinary one.
+ */
+.include-inactive { display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--muted); cursor: pointer;
+  padding: 5px 0; white-space: nowrap;
+  transition: color .12s ease; }
+.include-inactive:hover { color: var(--ink-2); }
+.include-inactive input { width: 14px; height: 14px; accent-color: var(--brand);
+  cursor: pointer; }
+.include-inactive.is-on { color: var(--brand); font-weight: 550; }
+/* How many are being left out, so the count is visible without ticking. */
+.include-inactive-count { display: inline-flex; align-items: center;
+  justify-content: center; min-width: 17px; height: 17px; padding: 0 5px;
+  border-radius: 9px; background: var(--line); color: var(--muted);
+  font-size: 11px; font-weight: 600; }

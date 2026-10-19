@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '@/auth/useAuth';
 import { useQuery } from '@/lib/useQuery';
+import { IncludeInactive } from '@/components/ui/IncludeInactive';
+import {
+  clearSelectionIfHidden, employeeLabel, inactiveCount, scopedEmployees,
+} from '@/lib/employeeScope';
 import { useToast } from '@/components/ui/ToastProvider';
 import { employeesApi, salaryAdvanceApi } from '@/lib/api';
 import { formatCurrency, formatDate, formatMonth } from '@/lib/format';
@@ -26,13 +30,18 @@ export function SalaryAdvancePage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const emps = useQuery(() => employeesApi.listActive(), []);
+  const emps = useQuery(() => employeesApi.list(), []);
+  // A salary advance outstanding when someone leaves is still company money.
+  const [includeInactive, setIncludeInactive] = useState(false);
 
   const summary = useQuery(async () => {
     const [advances, recoveries, employees] = await Promise.all([
       salaryAdvanceApi.listAll(),
       salaryAdvanceApi.recoveries(),
-      employeesApi.listActive(),
+      // All employees, not just active: the totals below are built from the
+      // ADVANCES, so a leaver's row exists either way — with the active-only
+      // list it simply rendered "—" where the name should be.
+      employeesApi.list(),
     ]);
     const nameOf = new Map(employees.map((e) => [e.id, e] as const));
     const totals = new Map<string, { given: number; recovered: number }>();
@@ -163,15 +172,20 @@ export function SalaryAdvancePage() {
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
-            {(emps.data ?? []).map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
+            {scopedEmployees(emps.data ?? [], includeInactive).map((e) => (
+              <option key={e.id} value={e.id}>{employeeLabel(e)}</option>
             ))}
           </Select>
           <TextInput label="Date" type="date" value={date}
             onChange={(e) => setDate(e.target.value)} />
         </div>
+        <IncludeInactive
+          checked={includeInactive}
+          count={inactiveCount(emps.data ?? [])}
+          onChange={(v) => {
+            setIncludeInactive(v);
+            setEmployeeId((cur) => clearSelectionIfHidden(cur, emps.data ?? [], v));
+          }} />
         <div className="form-grid-2">
           <TextInput label="Amount (₹) *" type="number" min="0" step="0.01" value={amount}
             onChange={(e) => setAmount(e.target.value)} />

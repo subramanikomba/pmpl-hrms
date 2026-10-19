@@ -18,6 +18,10 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Select, TextInput } from '@/components/ui/Field';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ReimbursementsTab } from '@/features/vouchers/ReimbursementsTab';
+import { IncludeInactive } from '@/components/ui/IncludeInactive';
+import {
+  clearSelectionIfHidden, employeeLabel, inactiveCount, scopedEmployees,
+} from '@/lib/employeeScope';
 import {
   generateVoucherPdf, generateVoucherPreview, type VoucherData,
 } from '@/features/vouchers/voucherDocument';
@@ -53,6 +57,12 @@ export function CompanyAdvancePage() {
       ? requested : 'ledger',
   );
   const [employeeId, setEmployeeId] = useState(() => params.get('employee') ?? '');
+  /*
+   * A leaver keeps their advance ledger. Without this the ledger of someone
+   * who has left is unreachable, which is exactly when an unsettled balance
+   * most needs looking at.
+   */
+  const [includeInactive, setIncludeInactive] = useState(false);
   const [busyVoucher, setBusyVoucher] = useState<string | null>(null);
   const [ledgerFilter, setLedgerFilter] =
     useState<'all' | 'advances' | 'expenses'>('all');
@@ -129,7 +139,7 @@ export function CompanyAdvancePage() {
     } finally { setBusyVoucher(null); }
   }
 
-  const emps = useQuery(() => employeesApi.listActive(), []);
+  const emps = useQuery(() => employeesApi.list(), []);
   const selectedEmployee = (emps.data ?? []).find((e) => e.id === employeeId);
   const ledger = useQuery(
     () => employeeId ? advanceApi.ledgerFor(employeeId) : Promise.resolve([]),
@@ -405,10 +415,8 @@ export function CompanyAdvancePage() {
           <Select label="Employee *" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Select an employee…</option>
-            {(emps.data ?? []).map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
+            {scopedEmployees(emps.data ?? [], includeInactive).map((e) => (
+              <option key={e.id} value={e.id}>{employeeLabel(e)}</option>
             ))}
           </Select>
           <TextInput label="Date *" type="date" value={date}
@@ -421,6 +429,17 @@ export function CompanyAdvancePage() {
           <TextInput label="Note" value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Purpose of the advance" />
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <IncludeInactive
+              checked={includeInactive}
+              count={inactiveCount(emps.data ?? [])}
+              onChange={(v) => {
+                setIncludeInactive(v);
+                setEmployeeId((cur) =>
+                  clearSelectionIfHidden(cur, emps.data ?? [], v));
+              }} />
+          </div>
           <div className="field">
             <span className="field-label">&nbsp;</span>
             <Button variant="primary" disabled={saving || !employeeId}
@@ -613,9 +632,16 @@ function AdvanceExpenseSummary() {
   // there is never a question of which panel belongs to which row.
   const [open, setOpen] = useState<OpenCell>(null);
 
+  /*
+   * This roll-up used to iterate over ACTIVE employees only, so a leaver's
+   * advances vanished from it entirely while the dashboard total still
+   * counted them — two screens disagreeing about the same money.
+   */
+  const [includeInactive, setIncludeInactive] = useState(false);
+
   const q = useQuery(async () => {
     const [employees, ledger, pending] = await Promise.all([
-      employeesApi.listActive(),
+      employeesApi.list(),
       advanceApi.ledgerAll(),
       expenseApi.listAll({ status: 'pending' }),
     ]);
@@ -647,7 +673,9 @@ function AdvanceExpenseSummary() {
   if (q.loading) return <Spinner label="Loading summary…" />;
   if (q.error) return <Card><p className="error-text">{q.error}</p></Card>;
 
-  const rows = q.data ?? [];
+  const all = q.data ?? [];
+  const rows = all.filter(
+    (r) => includeInactive || r.employee.status === 'active');
   const totals = rows.reduce(
     (t, r) => ({
       given: round2(t.given + r.given),
@@ -665,6 +693,9 @@ function AdvanceExpenseSummary() {
           <strong>{r.employee.employee_code}</strong>
           <div className="emp-name">
             {r.employee.first_name} {r.employee.last_name}
+            {r.employee.status !== 'active' && (
+              <span className="muted small"> · inactive</span>
+            )}
           </div>
         </>
       ) },
@@ -692,6 +723,10 @@ function AdvanceExpenseSummary() {
         Balances come from the same ledger as the employee view. Pending claims
         are awaiting approval and do not affect the outstanding balance.
       </p>
+      <IncludeInactive
+        checked={includeInactive}
+        count={all.filter((r) => r.employee.status !== 'active').length}
+        onChange={setIncludeInactive} />
       <DataTable
         columns={columns}
         rows={rows}

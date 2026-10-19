@@ -230,12 +230,15 @@ export function AdminDashboardPage() {
                 {d.pendingVisits.length}
               </strong>
             </li>
+            {/* Both figures are for the CURRENT month, which is also what
+                the report opens on, so a plain link lands on exactly the
+                visits these numbers were counted from. */}
             <li>
-              <span>Approved day visits this month</span>
+              <Link to="/admin/outdoor-visits">Approved day visits this month</Link>
               <strong>{visitTotals.dayVisitDays}</strong>
             </li>
             <li>
-              <span>Approved nights away this month</span>
+              <Link to="/admin/outdoor-visits">Approved nights away this month</Link>
               <strong>{visitTotals.overnightNights}</strong>
             </li>
           </ul>

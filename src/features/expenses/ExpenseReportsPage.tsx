@@ -5,6 +5,10 @@ import { clientApi, employeesApi, expenseApi, reimbursementApi } from '@/lib/api
 import { formatCurrency, formatDate } from '@/lib/format';
 import { isoDate } from '@/lib/payroll';
 import { FilterIcon } from '@/components/ui/Icons';
+import { IncludeInactive } from '@/components/ui/IncludeInactive';
+import {
+  clearSelectionIfHidden, employeeLabel, inactiveCount, scopedEmployees,
+} from '@/lib/employeeScope';
 
 type RangeKey =
   'today' | 'this_week' | 'this_month' | 'last_month' | 'this_fy' | 'custom';
@@ -81,6 +85,9 @@ const CATEGORIES = ['Travel','Food','Local Conveyance','Parts/Components','Accom
 export function ExpenseReportsPage() {
   const now = new Date();
   const [employeeId, setEmployeeId] = useState('');
+  // A leaver still has the claims they made, so the report can reach them.
+  // Off by default: the common case is a report about current staff.
+  const [includeInactive, setIncludeInactive] = useState(false);
   const [category, setCategory] = useState('');
   const [clientId, setClientId] = useState('');
   const [status, setStatus] = useState('');
@@ -112,7 +119,7 @@ export function ExpenseReportsPage() {
   }
 
   const refs = useQuery(async () => {
-    const [emps, clients] = await Promise.all([employeesApi.listActive(), clientApi.list()]);
+    const [emps, clients] = await Promise.all([employeesApi.list(), clientApi.list()]);
     return { emps, clients };
   }, []);
 
@@ -266,10 +273,8 @@ export function ExpenseReportsPage() {
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>
-            {(refs.data?.emps ?? []).map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
+            {scopedEmployees(refs.data?.emps ?? [], includeInactive).map((e) => (
+              <option key={e.id} value={e.id}>{employeeLabel(e)}</option>
             ))}
           </Select>
           <div className="field">
@@ -282,6 +287,19 @@ export function ExpenseReportsPage() {
                 <span className="filter-count">{activeExtra}</span>
               )}
             </Button>
+          </div>
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <IncludeInactive
+              checked={includeInactive}
+              count={inactiveCount(refs.data?.emps ?? [])}
+              onChange={(v) => {
+                setIncludeInactive(v);
+                // Turning it off must not leave the report filtered to
+                // someone who has just vanished from the dropdown.
+                setEmployeeId((cur) =>
+                  clearSelectionIfHidden(cur, refs.data?.emps ?? [], v));
+              }} />
           </div>
         </div>
 

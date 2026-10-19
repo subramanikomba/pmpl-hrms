@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@/lib/useQuery';
+import { IncludeInactive } from '@/components/ui/IncludeInactive';
+import {
+  clearSelectionIfHidden, employeeLabel, inactiveCount, scopedEmployees,
+} from '@/lib/employeeScope';
 import { clientApi, employeesApi, outdoorVisitApi } from '@/lib/api';
 import { isoDate, monthStart } from '@/lib/payroll';
 import { countVisitsForMonth, to12Hour } from '@/lib/visits';
@@ -23,6 +27,8 @@ export function OutdoorVisitReportPage() {
   const today = useMemo(() => new Date(), []);
   const [monthValue, setMonthValue] = useState(monthInputValue(today));
   const [employeeId, setEmployeeId] = useState('');
+  // Visits made before someone left still belong in the report.
+  const [includeInactive, setIncludeInactive] = useState(false);
 
   const month = parseMonthInput(monthValue) ?? monthStart(today);
 
@@ -33,7 +39,7 @@ export function OutdoorVisitReportPage() {
       outdoorVisitApi.listAll({
         from, to, employeeId: employeeId || undefined,
       }),
-      employeesApi.listActive(),
+      employeesApi.list(),
       clientApi.listWithLocations(),
     ]);
     return {
@@ -113,12 +119,20 @@ export function OutdoorVisitReportPage() {
           <Select label="Employee" value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">All employees</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.employee_code} — {e.first_name} {e.last_name}
-              </option>
+            {scopedEmployees(employees, includeInactive).map((e) => (
+              <option key={e.id} value={e.id}>{employeeLabel(e)}</option>
             ))}
           </Select>
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <IncludeInactive
+              checked={includeInactive}
+              count={inactiveCount(employees)}
+              onChange={(v) => {
+                setIncludeInactive(v);
+                setEmployeeId((cur) => clearSelectionIfHidden(cur, employees, v));
+              }} />
+          </div>
         </div>
       </Card>
 
