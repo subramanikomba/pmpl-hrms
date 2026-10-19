@@ -86,6 +86,16 @@ export function AdminAttendanceEditor() {
   const isSelf = employeeId === employee.id;
   const selfToday = byDate.get(todayIso);
 
+  // Today's calendar state, so the Admin's own card reads like the employee's:
+  // it says why today is an off-day, and the button says that marking Present
+  // on one is recording work done, not routine attendance.
+  const todayIsOff = !workingDays.includes(today.getDay());
+  const todayIsHoliday = holidayDates.has(todayIso);
+  const selfPresent = selfToday?.status === 'present';
+  const todayLabel = todayIsHoliday ? 'Company Holiday'
+    : todayIsOff ? 'Weekly Off'
+    : 'Not marked';
+
   return (
     <>
       <Card>
@@ -112,13 +122,22 @@ export function AdminAttendanceEditor() {
               <div className="today-label">Status</div>
               <div className="today-status">
                 {selfToday ? <StatusBadge status={selfToday.status} />
-                  : <span className="muted">Not marked</span>}
+                  : todayIsHoliday || todayIsOff
+                    ? todayLabel
+                    : <span className="muted">Not marked</span>}
+                {selfPresent && (todayIsHoliday || todayIsOff) && (
+                  <> <Badge tone="info">
+                    Worked {todayIsHoliday ? 'holiday' : 'weekly off'}
+                  </Badge></>
+                )}
               </div>
             </div>
             <Button variant="primary"
-              disabled={busy === todayIso || selfToday?.status === 'present'}
+              disabled={busy === todayIso || selfPresent}
               onClick={() => void set(todayIso, 'present')}>
-              {selfToday?.status === 'present' ? 'Marked Present' : 'Mark Present'}
+              {selfPresent ? 'Marked Present'
+                : todayIsHoliday || todayIsOff ? 'Mark Present (working today)'
+                : 'Mark Present'}
             </Button>
           </div>
         </Card>

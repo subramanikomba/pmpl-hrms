@@ -22,10 +22,18 @@ const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
 type CellKind =
   | 'present' | 'leave' | 'weekly' | 'holiday' | 'absent' | 'unmarked'
   // Present on a weekly off or company holiday.
-  | 'worked_off' | 'future';
+  | 'worked_off'
+  // Present on an off-day that was BANKED as a day off instead of earning the
+  // weekend/holiday allowance. Distinct from worked_off: the pay consequence
+  // is the opposite one, so collapsing the two would misreport the month.
+  | 'reserved'
+  // A working day taken off against a previously reserved day. Paid, and not
+  // an absence — it must never read as Absent or Not marked.
+  | 'comp_off'
+  | 'future';
 const CELL_TEXT: Record<CellKind, string> = {
   present: 'P', leave: 'PL', weekly: 'WO', holiday: 'CH', absent: 'A',
-  worked_off: 'P*',
+  worked_off: 'P*', reserved: 'P+', comp_off: 'CO',
   // Not the same as Absent: nobody recorded anything for this day.
   unmarked: 'NM', future: '·',
 };
@@ -65,24 +73,36 @@ export function AttendanceReportPage() {
   const workingSet = new Set(q.data?.settings.working_days ?? [1, 2, 3, 4, 5, 6]);
   const todayStr = isoDate(today);
 
-  const byEmployee = new Map<string, Map<string, string>>();
+  type DayCell = { status: string; reserved: boolean };
+  const byEmployee = new Map<string, Map<string, DayCell>>();
   for (const r of q.data?.records ?? []) {
-    const m = byEmployee.get(r.employee_id) ?? new Map<string, string>();
-    m.set(r.date, r.status);
+    const m = byEmployee.get(r.employee_id) ?? new Map<string, DayCell>();
+    m.set(r.date, { status: r.status, reserved: r.off_day_use === 'reserved' });
     byEmployee.set(r.employee_id, m);
   }
 
   function cellKind(empId: string, d: Date): CellKind {
     const ds = isoDate(d);
-    const status = byEmployee.get(empId)?.get(ds);
+    const cell = byEmployee.get(empId)?.get(ds);
+    const status = cell?.status;
     const isOff = !workingSet.has(d.getDay());
     const isHoliday = holidayDates.has(ds);
+
+    // A day off taken against a reserved day. Checked before the calendar
+    // because it only ever falls on a working day, and before 'absent'
+    // because it is paid.
+    if (status === 'comp_off') return 'comp_off';
 
     // An explicit Present beats the calendar. Work done on a Sunday or a
     // company holiday is what the Emergency / Weekend allowance pays for, so
     // it must be visible here rather than collapsed into WO or CH. The day is
     // still paid as an off — this changes display only, never paid days.
-    if (status === 'present') return isOff || isHoliday ? 'worked_off' : 'present';
+    // A reserved day was worked too, but it was banked as a day off instead
+    // of earning the allowance, so it gets its own code.
+    if (status === 'present') {
+      if (!isOff && !isHoliday) return 'present';
+      return cell?.reserved ? 'reserved' : 'worked_off';
+    }
 
     if (isOff) return 'weekly';
     if (status === 'paid_leave') return 'leave';
@@ -248,14 +268,45 @@ export function AttendanceReportPage() {
               </table>
             </div>
 
-            <div className="legend">
-              <span className="att-cell cell-present">P</span> Present
-              <span className="att-cell cell-leave">PL</span> Paid leave
-              <span className="att-cell cell-weekly">WO</span> Weekly off
-              <span className="att-cell cell-holiday">CH</span> Company holiday
-              <span className="att-cell cell-worked_off">P*</span> Worked weekly off / holiday
-              <span className="att-cell cell-absent">A</span> Absent
-              <span className="att-cell cell-unmarked">NM</span> Not marked
+            {/*
+              * Grouped rather than listed, because the three "off-day worked"
+              * codes are the ones that get confused: P* and P+ differ by one
+              * character and have opposite pay consequences, and CO is the
+              * day that a P+ paid for. Sitting them under one heading is what
+              * makes that readable. Each chip and its label are one span so a
+              * wrap can never separate them.
+              */}
+            <div className="legend-groups">
+              <div className="legend-group">
+                <span className="legend-title">Calendar</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-present">P</span> Present</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-leave">PL</span> Paid leave</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-weekly">WO</span> Weekly off</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-holiday">CH</span> Company Holiday</span>
+              </div>
+              <div className="legend-group">
+                <span className="legend-title">Off-day worked</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-worked_off">P*</span>
+                  {' '}Worked, earns allowance</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-reserved">P+</span>
+                  {' '}Worked, reserved as day-off</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-comp_off">CO</span>
+                  {' '}Day off taken (comp-off)</span>
+              </div>
+              <div className="legend-group">
+                <span className="legend-title">Exceptions</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-absent">A</span> Absent</span>
+                <span className="legend-item">
+                  <span className="att-cell cell-unmarked">NM</span> Not marked</span>
+              </div>
             </div>
           </Card>
         )}

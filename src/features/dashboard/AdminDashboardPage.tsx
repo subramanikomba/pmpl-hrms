@@ -90,6 +90,16 @@ export function AdminDashboardPage() {
   const workingToday =
     (d.settings.working_days ?? [1, 2, 3, 4, 5, 6]).includes(todayDow)
     && !d.monthHolidays.some((h) => h.holiday_date === todayIso);
+  // Why today is not a working day, for the caption above the stat grid.
+  // Without it "Present today: 0" reads as alarming on a holiday, and the
+  // "Attendance not marked today" line vanishes with nothing explaining why.
+  // Holiday wins over weekly off when a holiday falls on one: the named
+  // reason is the more informative of the two.
+  const todayHoliday = d.monthHolidays.find(
+    (h) => h.holiday_date === todayIso) ?? null;
+  const todayOffReason: 'holiday' | 'weekly_off' | null = todayHoliday
+    ? 'holiday'
+    : workingToday ? null : 'weekly_off';
   const markedTodayIds = new Set(
     d.todayAtt.filter((a) => a.date === todayIso).map((a) => a.employee_id));
   const unmarkedToday = workingToday
@@ -133,6 +143,15 @@ export function AdminDashboardPage() {
   return (
     <>
       <PageHeader title="Dashboard" subtitle={`Payroll month: ${formatMonth(d.month)}`} />
+
+      {todayOffReason && (
+        <p className={`today-strip ${todayOffReason === 'weekly_off' ? 'today-strip-off' : ''}`}>
+          <span className="today-strip-dot" aria-hidden="true" />
+          {todayOffReason === 'holiday'
+            ? <>Today is a <strong>company holiday</strong>{todayHoliday?.name ? ` — ${todayHoliday.name}` : ''}</>
+            : <>Today is a <strong>weekly off</strong></>}
+        </p>
+      )}
 
       <div className="stat-grid">
         <StatCard label="Active employees" value={d.employees.length} />

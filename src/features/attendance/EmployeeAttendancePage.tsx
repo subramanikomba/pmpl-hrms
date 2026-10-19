@@ -72,7 +72,11 @@ export function EmployeeAttendancePage() {
 
   const todayStr = isoDate(today);
   const todayRecord = records.find((r) => r.date === todayStr);
-  const isSunday = today.getDay() === 0;
+  // Read from company settings, not hardcoded to Sunday: computePaidDays and
+  // the comp-off trigger both honour working_days, so a company whose off-day
+  // is not Sunday would otherwise see this card disagree with its own payroll.
+  const isSunday = !(q.data?.settings.working_days ?? [1, 2, 3, 4, 5, 6])
+    .includes(today.getDay());
   const isHoliday = holidayDates.has(todayStr);
   const alreadyPresent = todayRecord?.status === 'present';
   const pendingRequests = requests.filter((r) => r.status === 'pending');
@@ -150,7 +154,7 @@ export function EmployeeAttendancePage() {
     }
   }
 
-  const todayLabel = isSunday ? 'Weekly Off (Sunday)'
+  const todayLabel = isSunday ? 'Weekly Off'
     : isHoliday ? 'Company Holiday'
     : todayRecord ? todayRecord.status
     : 'Not marked';
