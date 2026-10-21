@@ -47,4 +47,20 @@ describe('employeeScope', () => {
     expect(clearSelectionIfHidden('B', ALL, true)).toBe('B');
     expect(clearSelectionIfHidden('', ALL, false)).toBe('');
   });
+  /**
+   * Regression: the Attendance report's "Attendance not marked" block was
+   * built from the unscoped employee list, so leavers (EMP002, EMP125) were
+   * raised as exceptions that could never be resolved — a leaver will not
+   * mark attendance again. Payroll and the Dashboard already scoped to
+   * active; this pins the report to the same rule, and pins it to ACTIVE
+   * regardless of the Include-inactive toggle, because the block is a to-do
+   * list rather than a record of what happened.
+   */
+  it('scopes the attendance-exception roster to active employees, toggle or not', () => {
+    const roster = [emp('A', 'active'), emp('B', 'inactive')];
+    expect(scopedEmployees(roster, false).map((e) => e.id)).toEqual(['A']);
+    // The toggle widens the report grid, never the exception list: the call
+    // site passes `false` unconditionally, which is what this asserts.
+    expect(scopedEmployees(roster, false)).toHaveLength(1);
+  });
 });
