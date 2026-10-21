@@ -137,7 +137,14 @@ export function AttendanceReportPage() {
 
       {showExceptions && q.data && (() => {
         const unmarked = findUnmarkedAttendance({
-          employeeIds: (emps.data ?? []).map((e) => e.id),
+          // Always active-only, regardless of the "Include inactive" toggle.
+          // That toggle widens the REPORT, which follows records and money.
+          // This block is a to-do list — it asks Admin to resolve each day in
+          // the grid — and a leaver will never mark attendance again, so an
+          // exception raised against one could never be cleared. Payroll and
+          // the Dashboard scope the same check to active employees; this
+          // screen was the only one that did not.
+          employeeIds: scopedEmployees(emps.data ?? [], false).map((e) => e.id),
           records: q.data.records,
           month,
           holidayDates,
